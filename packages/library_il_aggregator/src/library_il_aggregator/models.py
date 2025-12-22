@@ -1,6 +1,7 @@
 """Data models for aggregated library data."""
 
 from dataclasses import dataclass, field
+from datetime import date
 from typing import Optional
 
 from library_il_client import CheckedOutBook, HistoryItem
@@ -64,13 +65,8 @@ class AggregatedHistory:
     
     def sorted_by_return_date(self, descending: bool = True) -> list[HistoryItem]:
         """Get all history items sorted by return date."""
-        from datetime import date as date_type
         return sorted(
             self.items,
-            key=lambda i: (i.return_date or date_type.min, i.title),
+            key=lambda i: (i.return_date or date.min, i.title),
             reverse=descending,
         )
-
-
-# Import date for sorting
-from datetime import date

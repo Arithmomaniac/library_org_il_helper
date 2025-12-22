@@ -10,7 +10,12 @@ authors = [
 ]
 
 [dependency-groups]
-dev = []
+dev = ["pytest>=8.0.0"]
 
 [tool.uv.workspace]
 members = ["packages/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["packages/library_il_client/tests", "packages/library_il_aggregator/tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
