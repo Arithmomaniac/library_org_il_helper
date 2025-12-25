@@ -8,6 +8,8 @@ import os
 import sys
 from datetime import date
 
+from tabulate import tabulate
+
 from library_il_aggregator import LibraryAccount, LibraryAggregator
 
 
@@ -159,6 +161,15 @@ Examples:
         print("Error: No library accounts configured.", file=sys.stderr)
         return 1
     
+    # Build a mapping for display labels
+    # Map from slug or account_id to label
+    label_map: dict[str, str] = {}
+    for account in accounts:
+        if account.label:
+            label_map[account.account_id] = account.label
+        else:
+            label_map[account.account_id] = f"{account.slug}:{account.username}"
+    
     with LibraryAggregator(accounts) as aggregator:
         # Login to all accounts
         print(f"Logging in to {len(accounts)} account(s)...")
@@ -166,7 +177,8 @@ Examples:
         
         for account_id, success in login_results.items():
             status = "✓" if success else "✗"
-            print(f"  {status} {account_id}")
+            label = label_map.get(account_id, account_id)
+            print(f"  {status} {label}")
         
         if not any(login_results.values()):
             print("Error: Failed to login to any account", file=sys.stderr)
@@ -176,63 +188,112 @@ Examples:
         
         # Show checked out books
         if args.books:
-            print("=" * 60)
-            print("CURRENTLY CHECKED OUT BOOKS")
-            print("=" * 60)
+            print("## Currently Checked Out Books")
+            print()
             
             all_books = aggregator.get_all_checked_out_books()
             
             if all_books.errors:
                 for account_id, error in all_books.errors.items():
-                    print(f"  Warning: {account_id}: {error}", file=sys.stderr)
+                    label = label_map.get(account_id, account_id)
+                    print(f"  Warning: {label}: {error}", file=sys.stderr)
             
             books = all_books.sorted_by_due_date()
             if args.limit > 0:
                 books = books[:args.limit]
             
             if not books:
-                print("  No books currently checked out.")
+                print("No books currently checked out.")
             else:
-                print(f"  Total: {all_books.total_count} books\n")
+                print(f"**Total: {all_books.total_count} books**")
+                print()
                 
+                # Prepare table data
+                table_data = []
                 for book in books:
-                    due_str = ""
+                    # Find the account that matches this book
+                    library_label = book.library_slug
+                    for account in accounts:
+                        if account.slug == book.library_slug:
+                            library_label = label_map.get(account.account_id, book.library_slug)
+                            break
+                    
+                    # Truncate long library labels
+                    if len(library_label) > 18:
+                        library_label = library_label[:15] + "..."
+                    
+                    # Truncate long titles
+                    title = book.title
+                    if len(title) > 58:
+                        title = title[:55] + "..."
+                    
+                    due_date_str = str(book.due_date) if book.due_date else "N/A"
+                    days_str = ""
                     if book.due_date:
                         days_remaining = (book.due_date - date.today()).days
-                        due_str = f" (due: {book.due_date}, {days_remaining} days)"
+                        days_str = str(days_remaining)
+                    else:
+                        days_str = "N/A"
                     
-                    print(f"  [{book.library_slug}] {book.title}{due_str}")
+                    table_data.append([library_label, title, due_date_str, days_str])
+                
+                headers = ["Library", "Title", "Due Date", "Days Remaining"]
+                print(tabulate(table_data, headers=headers, tablefmt="github"))
             
             print()
         
         # Show checkout history
         if args.history:
-            print("=" * 60)
-            print("CHECKOUT HISTORY")
-            print("=" * 60)
+            print("## Checkout History")
+            print()
             
             all_history = aggregator.get_all_checkout_history()
             
             if all_history.errors:
                 for account_id, error in all_history.errors.items():
-                    print(f"  Warning: {account_id}: {error}", file=sys.stderr)
+                    label = label_map.get(account_id, account_id)
+                    print(f"  Warning: {label}: {error}", file=sys.stderr)
             
             items = all_history.sorted_by_return_date()
             if args.limit > 0:
                 items = items[:args.limit]
             
             if not items:
-                print("  No checkout history found.")
+                print("No checkout history found.")
             else:
-                print(f"  Total: {all_history.total_count} items\n")
+                print(f"**Total: {all_history.total_count} items**")
+                print()
                 
+                # Prepare table data
+                table_data = []
                 for item in items:
-                    author_str = f" by {item.author}" if item.author else ""
-                    date_str = ""
-                    if item.return_date:
-                        date_str = f" (returned: {item.return_date})"
+                    # Find the account that matches this item
+                    library_label = item.library_slug
+                    for account in accounts:
+                        if account.slug == item.library_slug:
+                            library_label = label_map.get(account.account_id, item.library_slug)
+                            break
                     
-                    print(f"  [{item.library_slug}] {item.title}{author_str}{date_str}")
+                    # Truncate long library labels
+                    if len(library_label) > 18:
+                        library_label = library_label[:15] + "..."
+                    
+                    # Truncate long titles
+                    title = item.title
+                    if len(title) > 58:
+                        title = title[:55] + "..."
+                    
+                    # Truncate long author names
+                    author = item.author or ""
+                    if len(author) > 28:
+                        author = author[:25] + "..."
+                    
+                    return_date_str = str(item.return_date) if item.return_date else "N/A"
+                    
+                    table_data.append([library_label, title, author, return_date_str])
+                
+                headers = ["Library", "Title", "Author", "Return Date"]
+                print(tabulate(table_data, headers=headers, tablefmt="github"))
             
             print()
     
