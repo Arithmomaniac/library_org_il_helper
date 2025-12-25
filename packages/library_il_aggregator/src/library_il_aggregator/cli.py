@@ -211,12 +211,16 @@ Examples:
                 # Prepare table data
                 table_data = []
                 for book in books:
-                    # Find the account that matches this book
+                    # Get the label using the account_id attached to the book
                     library_label = book.library_slug
-                    for account in accounts:
-                        if account.slug == book.library_slug:
-                            library_label = label_map.get(account.account_id, book.library_slug)
-                            break
+                    if hasattr(book, 'account_id'):
+                        library_label = label_map.get(book.account_id, book.library_slug)
+                    else:
+                        # Fallback to slug matching for backwards compatibility
+                        for account in accounts:
+                            if account.slug == book.library_slug:
+                                library_label = label_map.get(account.account_id, book.library_slug)
+                                break
                     
                     # Truncate long library labels
                     if len(library_label) > 18:
@@ -267,12 +271,16 @@ Examples:
                 # Prepare table data
                 table_data = []
                 for item in items:
-                    # Find the account that matches this item
+                    # Get the label using the account_id attached to the item
                     library_label = item.library_slug
-                    for account in accounts:
-                        if account.slug == item.library_slug:
-                            library_label = label_map.get(account.account_id, item.library_slug)
-                            break
+                    if hasattr(item, 'account_id'):
+                        library_label = label_map.get(item.account_id, item.library_slug)
+                    else:
+                        # Fallback to slug matching for backwards compatibility
+                        for account in accounts:
+                            if account.slug == item.library_slug:
+                                library_label = label_map.get(account.account_id, item.library_slug)
+                                break
                     
                     # Truncate long library labels
                     if len(library_label) > 18:

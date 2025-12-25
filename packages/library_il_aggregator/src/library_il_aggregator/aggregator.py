@@ -180,6 +180,9 @@ class LibraryAggregator:
             
             try:
                 books = client.get_checked_out_books()
+                # Attach account_id to each book for proper labeling
+                for book in books:
+                    book.account_id = account_id
                 result.books.extend(books)
             except Exception as e:
                 result.errors[account_id] = str(e)
@@ -206,6 +209,9 @@ class LibraryAggregator:
             
             try:
                 history = client.get_checkout_history()
+                # Attach account_id to each history item for proper labeling
+                for item in history.items:
+                    item.account_id = account_id
                 result.items.extend(history.items)
             except Exception as e:
                 result.errors[account_id] = str(e)
