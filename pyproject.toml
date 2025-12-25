@@ -1,0 +1,21 @@
+[project]
+name = "library-org-il-helper"
+version = "0.1.0"
+description = "Workspace for interacting with library.org.il Israeli public library websites"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.11"
+authors = [
+    { name = "Library IL Helper Contributors" }
+]
+
+[dependency-groups]
+dev = ["pytest>=8.0.0"]
+
+[tool.uv.workspace]
+members = ["packages/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["packages/library_il_client/tests", "packages/library_il_aggregator/tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
