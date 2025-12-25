@@ -4,9 +4,11 @@ Aggregates library data from multiple library.org.il Israeli public library webs
 
 ## Features
 
+- **Async/Await API**: Modern async implementation with parallel operations for improved performance
 - **Multi-Library Support**: Combine data from multiple libraries into a single view
 - **Multi-Account Support**: Use different accounts at the same library (e.g., family members)
 - **Per-Library Credentials**: Each library/account can have different credentials
+- **Parallel Fetching**: Fetch data from all libraries simultaneously for faster results
 - **Unified Checked Out Books**: See all currently borrowed books across all accounts
 - **Combined History**: View checkout history from all accounts sorted by date
 - **CLI Tool**: Command-line interface for quick access
@@ -68,45 +70,53 @@ The `label` field is optional and helps distinguish multiple accounts at the sam
 #### Multiple Accounts at Same Library
 
 ```python
+import asyncio
 from library_il_aggregator import LibraryAccount, LibraryAggregator
 
-# Define accounts - can have multiple accounts per library
-accounts = [
-    LibraryAccount("shemesh", "parent_tz", "parent_pass", label="parent"),
-    LibraryAccount("shemesh", "child_tz", "child_pass", label="child"),
-    LibraryAccount("betshemesh", "parent_tz", "parent_pass"),
-]
+async def main():
+    # Define accounts - can have multiple accounts per library
+    accounts = [
+        LibraryAccount("shemesh", "parent_tz", "parent_pass", label="parent"),
+        LibraryAccount("shemesh", "child_tz", "child_pass", label="child"),
+        LibraryAccount("betshemesh", "parent_tz", "parent_pass"),
+    ]
+    
+    async with LibraryAggregator(accounts) as aggregator:
+        # Login to all accounts (runs in parallel)
+        results = await aggregator.login_all()
+        
+        # Get all checked out books from all accounts (fetched in parallel)
+        all_books = await aggregator.get_all_checked_out_books()
+        
+        for book in all_books.sorted_by_due_date():
+            print(f"[{book.library_slug}] {book.title} - due {book.due_date}")
 
-with LibraryAggregator(accounts) as aggregator:
-    # Login to all accounts
-    results = aggregator.login_all()
-    
-    # Get all checked out books from all accounts
-    all_books = aggregator.get_all_checked_out_books()
-    
-    for book in all_books.sorted_by_due_date():
-        print(f"[{book.library_slug}] {book.title} - due {book.due_date}")
+asyncio.run(main())
 ```
 
 #### Same Credentials Across Libraries
 
 ```python
+import asyncio
 from library_il_aggregator import LibraryAggregator
 
-# Convenience method when using same credentials
-with LibraryAggregator.from_slugs(
-    ["shemesh", "betshemesh"],
-    username="your_tz",
-    password="your_password"
-) as aggregator:
-    aggregator.login_all()
-    
-    books = aggregator.get_all_checked_out_books()
-    print(f"Total books: {books.total_count}")
-    
-    history = aggregator.get_all_checkout_history()
-    for item in history.sorted_by_return_date()[:10]:
-        print(f"[{item.library_slug}] {item.title}")
+async def main():
+    # Convenience method when using same credentials
+    async with LibraryAggregator.from_slugs(
+        ["shemesh", "betshemesh"],
+        username="your_tz",
+        password="your_password"
+    ) as aggregator:
+        await aggregator.login_all()
+        
+        books = await aggregator.get_all_checked_out_books()
+        print(f"Total books: {books.total_count}")
+        
+        history = await aggregator.get_all_checkout_history()
+        for item in history.sorted_by_return_date()[:10]:
+            print(f"[{item.library_slug}] {item.title}")
+
+asyncio.run(main())
 ```
 
 ## Data Models

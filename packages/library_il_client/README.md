@@ -4,6 +4,7 @@ A Python utility library for interacting with library.org.il Israeli public libr
 
 ## Features
 
+- **Async/Await API**: Modern async implementation for efficient concurrent operations
 - **Session Management**: Maintains authenticated HTTP sessions for interacting with library websites
 - **Get Checked Out Books**: Retrieve the list of currently borrowed books with due dates
 - **Renew Books**: Renew checked out books to extend their due dates
@@ -26,59 +27,71 @@ pip install library-il-client
 ### Basic Usage
 
 ```python
+import asyncio
 from library_il_client import LibraryClient
 
-# Create a client for a specific library (e.g., shemesh.library.org.il)
-with LibraryClient("shemesh") as client:
-    # Login with your Teudat Zehut (often used as both username and password)
-    client.login("your_teudat_zehut", "your_password")
-    
-    # Get currently checked out books
-    books = client.get_checked_out_books()
-    for book in books:
-        print(f"{book.title} - due: {book.due_date}")
-    
-    # Get checkout history
-    history = client.get_checkout_history()
-    for item in history.items:
-        print(f"{item.title} by {item.author}")
+async def main():
+    # Create a client for a specific library (e.g., shemesh.library.org.il)
+    async with LibraryClient("shemesh") as client:
+        # Login with your Teudat Zehut (often used as both username and password)
+        await client.login("your_teudat_zehut", "your_password")
+        
+        # Get currently checked out books
+        books = await client.get_checked_out_books()
+        for book in books:
+            print(f"{book.title} - due: {book.due_date}")
+        
+        # Get checkout history
+        history = await client.get_checkout_history()
+        for item in history.items:
+            print(f"{item.title} by {item.author}")
+
+asyncio.run(main())
 ```
 
 ### Using Environment Variables
 
 ```python
+import asyncio
 import os
 from library_il_client import LibraryClient
 
 # Set TEUDAT_ZEHUT environment variable (used as both username and password)
 os.environ["TEUDAT_ZEHUT"] = "your_teudat_zehut"
 
-with LibraryClient("betshemesh") as client:
-    client.login()  # Uses TEUDAT_ZEHUT automatically
-    books = client.get_checked_out_books()
+async def main():
+    async with LibraryClient("betshemesh") as client:
+        await client.login()  # Uses TEUDAT_ZEHUT automatically
+        books = await client.get_checked_out_books()
+
+asyncio.run(main())
 ```
 
 ### Renewing Books
 
 ```python
+import asyncio
 from library_il_client import LibraryClient
 
-with LibraryClient("shemesh") as client:
-    client.login("your_teudat_zehut", "your_password")
-    
-    # Renew all books
-    results = client.renew_all_books()
-    for result in results:
-        if result.success:
-            print(f"✓ {result.book.title} - new due date: {result.new_due_date}")
-        else:
-            print(f"✗ {result.book.title} - {result.message}")
-    
-    # Or renew specific books
-    books = client.get_checked_out_books()
-    if books:
-        result = client.renew_book(books[0])
-        print(f"Renewal {'succeeded' if result.success else 'failed'}")
+async def main():
+    async with LibraryClient("shemesh") as client:
+        await client.login("your_teudat_zehut", "your_password")
+        
+        # Renew all books
+        results = await client.renew_all_books()
+        for result in results:
+            if result.success:
+                print(f"✓ {result.book.title} - new due date: {result.new_due_date}")
+            else:
+                print(f"✗ {result.book.title} - {result.message}")
+        
+        # Or renew specific books
+        books = await client.get_checked_out_books()
+        if books:
+            result = await client.renew_book(books[0])
+            print(f"Renewal {'succeeded' if result.success else 'failed'}")
+
+asyncio.run(main())
 ```
 
 ## Supported Libraries
@@ -134,21 +147,25 @@ class RenewalResult:
 ## Error Handling
 
 ```python
+import asyncio
 from library_il_client import LibraryClient, LoginError, SessionExpiredError
 
-try:
-    with LibraryClient("shemesh") as client:
-        client.login("invalid", "credentials")
-except LoginError as e:
-    print(f"Login failed: {e}")
+async def main():
+    try:
+        async with LibraryClient("shemesh") as client:
+            await client.login("invalid", "credentials")
+    except LoginError as e:
+        print(f"Login failed: {e}")
+    
+    try:
+        async with LibraryClient("shemesh") as client:
+            await client.login("your_teudat_zehut", "your_password")
+            # ... later, if session expires ...
+            books = await client.get_checked_out_books()
+    except SessionExpiredError:
+        print("Session expired, please login again")
 
-try:
-    with LibraryClient("shemesh") as client:
-        client.login("your_teudat_zehut", "your_password")
-        # ... later, if session expires ...
-        books = client.get_checked_out_books()
-except SessionExpiredError:
-    print("Session expired, please login again")
+asyncio.run(main())
 ```
 
 ## License

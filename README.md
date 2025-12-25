@@ -13,20 +13,25 @@ This project provides tools for managing your library accounts across multiple I
 The core utility library for interacting with individual library.org.il websites.
 
 **Features:**
+- Async/await API for efficient concurrent operations
 - Login and session management
 - Get currently checked out books
 - Renew checked out books
 - Get checkout history
 
 ```python
+import asyncio
 from library_il_client import LibraryClient
 
-with LibraryClient("shemesh") as client:
-    client.login("your_teudat_zehut", "your_password")
-    
-    books = client.get_checked_out_books()
-    for book in books:
-        print(f"{book.title} - due: {book.due_date}")
+async def main():
+    async with LibraryClient("shemesh") as client:
+        await client.login("your_teudat_zehut", "your_password")
+        
+        books = await client.get_checked_out_books()
+        for book in books:
+            print(f"{book.title} - due: {book.due_date}")
+
+asyncio.run(main())
 ```
 
 ### library-il-aggregator
@@ -34,6 +39,7 @@ with LibraryClient("shemesh") as client:
 Aggregates data from multiple library.org.il websites into a unified view.
 
 **Features:**
+- Parallel fetching from multiple libraries for improved performance
 - Combine books and history from multiple libraries
 - CLI tool for quick access
 - Sort by due date or return date
