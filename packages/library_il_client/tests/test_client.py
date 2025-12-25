@@ -11,6 +11,7 @@ import os
 from datetime import date
 
 import pytest
+import pytest_asyncio
 
 from library_il_client import (
     CheckedOutBook,
@@ -20,6 +21,10 @@ from library_il_client import (
     LoginError,
     PaginatedHistory,
 )
+
+
+# Configure pytest-asyncio
+pytest_plugins = ('pytest_asyncio',)
 
 
 def get_credentials():
@@ -45,32 +50,35 @@ pytestmark = pytest.mark.skipif(
 class TestLibraryClientShemesh:
     """Tests for the LibraryClient with the shemesh library."""
     
-    @pytest.fixture
-    def client(self):
+    @pytest_asyncio.fixture
+    async def client(self):
         """Create a logged-in client for the shemesh library."""
         username, password = get_credentials()
         client = LibraryClient("shemesh", username, password)
-        client.login()
+        await client.login()
         yield client
-        client.close()
+        await client.close()
     
-    def test_login_success(self):
+    @pytest.mark.asyncio
+    async def test_login_success(self):
         """Test successful login to shemesh library."""
         username, password = get_credentials()
-        with LibraryClient("shemesh", username, password) as client:
-            result = client.login()
+        async with LibraryClient("shemesh", username, password) as client:
+            result = await client.login()
             assert result is True
             assert client.is_logged_in is True
     
-    def test_login_failure(self):
+    @pytest.mark.asyncio
+    async def test_login_failure(self):
         """Test login failure with invalid credentials."""
-        with LibraryClient("shemesh", "invalid_user", "invalid_pass") as client:
+        async with LibraryClient("shemesh", "invalid_user", "invalid_pass") as client:
             with pytest.raises(LoginError):
-                client.login()
+                await client.login()
     
-    def test_get_checked_out_books(self, client):
+    @pytest.mark.asyncio
+    async def test_get_checked_out_books(self, client):
         """Test fetching checked out books from shemesh library."""
-        books = client.get_checked_out_books()
+        books = await client.get_checked_out_books()
         
         assert isinstance(books, list)
         # All items should be CheckedOutBook instances
@@ -80,9 +88,10 @@ class TestLibraryClientShemesh:
             assert len(book.title) > 0
             assert book.library_slug == "shemesh"
     
-    def test_checked_out_books_have_due_dates(self, client):
+    @pytest.mark.asyncio
+    async def test_checked_out_books_have_due_dates(self, client):
         """Test that checked out books have due dates."""
-        books = client.get_checked_out_books()
+        books = await client.get_checked_out_books()
         
         for book in books:
             if book.due_date:
@@ -90,18 +99,20 @@ class TestLibraryClientShemesh:
                 # Due date should be in the future or today
                 assert book.due_date >= date.today()
     
-    def test_checked_out_books_have_barcodes(self, client):
+    @pytest.mark.asyncio
+    async def test_checked_out_books_have_barcodes(self, client):
         """Test that checked out books have barcodes for renewal."""
-        books = client.get_checked_out_books()
+        books = await client.get_checked_out_books()
         
         for book in books:
             # Barcode is required for renewal
             assert book.barcode is not None
             assert len(book.barcode) > 0
     
-    def test_get_checkout_history(self, client):
+    @pytest.mark.asyncio
+    async def test_get_checkout_history(self, client):
         """Test fetching checkout history from shemesh library."""
-        history = client.get_checkout_history()
+        history = await client.get_checkout_history()
         
         assert isinstance(history, PaginatedHistory)
         assert isinstance(history.items, list)
@@ -115,9 +126,10 @@ class TestLibraryClientShemesh:
             assert len(item.title) > 0
             assert item.library_slug == "shemesh"
     
-    def test_checkout_history_has_return_dates(self, client):
+    @pytest.mark.asyncio
+    async def test_checkout_history_has_return_dates(self, client):
         """Test that history items have return dates."""
-        history = client.get_checkout_history()
+        history = await client.get_checkout_history()
         
         for item in history.items:
             if item.return_date:
@@ -125,44 +137,48 @@ class TestLibraryClientShemesh:
                 # Return date should be in the past or today
                 assert item.return_date <= date.today()
     
-    def test_checkout_history_has_authors(self, client):
+    @pytest.mark.asyncio
+    async def test_checkout_history_has_authors(self, client):
         """Test that history items have author information."""
-        history = client.get_checkout_history()
+        history = await client.get_checkout_history()
         
         # At least some items should have authors
         items_with_authors = [item for item in history.items if item.author]
         assert len(items_with_authors) > 0
     
-    def test_not_logged_in_raises_error(self):
+    @pytest.mark.asyncio
+    async def test_not_logged_in_raises_error(self):
         """Test that operations fail when not logged in."""
-        with LibraryClient("shemesh") as client:
+        async with LibraryClient("shemesh") as client:
             with pytest.raises(LibraryClientError):
-                client.get_checked_out_books()
+                await client.get_checked_out_books()
 
 
 class TestLibraryClientBetshemesh:
     """Tests for the LibraryClient with the betshemesh library."""
     
-    @pytest.fixture
-    def client(self):
+    @pytest_asyncio.fixture
+    async def client(self):
         """Create a logged-in client for the betshemesh library."""
         username, password = get_credentials()
         client = LibraryClient("betshemesh", username, password)
-        client.login()
+        await client.login()
         yield client
-        client.close()
+        await client.close()
     
-    def test_login_success(self):
+    @pytest.mark.asyncio
+    async def test_login_success(self):
         """Test successful login to betshemesh library."""
         username, password = get_credentials()
-        with LibraryClient("betshemesh", username, password) as client:
-            result = client.login()
+        async with LibraryClient("betshemesh", username, password) as client:
+            result = await client.login()
             assert result is True
             assert client.is_logged_in is True
     
-    def test_get_checked_out_books(self, client):
+    @pytest.mark.asyncio
+    async def test_get_checked_out_books(self, client):
         """Test fetching checked out books from betshemesh library."""
-        books = client.get_checked_out_books()
+        books = await client.get_checked_out_books()
         
         assert isinstance(books, list)
         for book in books:
@@ -170,9 +186,10 @@ class TestLibraryClientBetshemesh:
             assert book.title is not None
             assert book.library_slug == "betshemesh"
     
-    def test_get_checkout_history(self, client):
+    @pytest.mark.asyncio
+    async def test_get_checkout_history(self, client):
         """Test fetching checkout history from betshemesh library."""
-        history = client.get_checkout_history()
+        history = await client.get_checkout_history()
         
         assert isinstance(history, PaginatedHistory)
         assert isinstance(history.items, list)

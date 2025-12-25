@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import os
 import sys
@@ -15,6 +16,11 @@ from library_il_aggregator import LibraryAccount, LibraryAggregator
 
 def main() -> int:
     """Main entry point for the CLI."""
+    return asyncio.run(async_main())
+
+
+async def async_main() -> int:
+    """Async main function for the CLI."""
     parser = argparse.ArgumentParser(
         description="Aggregate library data from multiple library.org.il websites",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -170,10 +176,10 @@ Examples:
         else:
             label_map[account.account_id] = f"{account.slug}:{account.username}"
     
-    with LibraryAggregator(accounts) as aggregator:
+    async with LibraryAggregator(accounts) as aggregator:
         # Login to all accounts
         print(f"Logging in to {len(accounts)} account(s)...")
-        login_results = aggregator.login_all()
+        login_results = await aggregator.login_all()
         
         for account_id, success in login_results.items():
             status = "✓" if success else "✗"
@@ -191,7 +197,7 @@ Examples:
             print("## Currently Checked Out Books")
             print()
             
-            all_books = aggregator.get_all_checked_out_books()
+            all_books = await aggregator.get_all_checked_out_books()
             
             if all_books.errors:
                 for account_id, error in all_books.errors.items():
@@ -251,7 +257,7 @@ Examples:
             print("## Checkout History")
             print()
             
-            all_history = aggregator.get_all_checkout_history()
+            all_history = await aggregator.get_all_checkout_history()
             
             if all_history.errors:
                 for account_id, error in all_history.errors.items():
