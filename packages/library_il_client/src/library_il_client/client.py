@@ -400,11 +400,7 @@ class LibraryClient:
             )
         
         results = await self._renew_books([book.barcode])
-        return results[0] if book.barcode else RenewalResult(
-            book=book,
-            success=False,
-            message="Cannot renew: no barcode available",
-        )
+        return results[0]
     
     async def renew_books(self, books: list[CheckedOutBook]) -> list[RenewalResult]:
         """
