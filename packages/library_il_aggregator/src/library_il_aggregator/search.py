@@ -134,105 +134,73 @@ class SearchAggregator:
         Merge results from multiple libraries and rank them.
         
         The algorithm:
-        1. Group results by metadata key for exact matches
-        2. For items not exactly matching, group by title+author
-        3. Score each item based on:
-           - Match quality (exact > title+author > title only)
+        1. Group results by normalized title+author key
+        2. For items in the same group, check if all metadata matches (exact match)
+        3. Score each merged item based on:
+           - Match quality (exact > title+author > unique)
            - Number of libraries containing the item
            - Original position in each library's results
         4. Sort by score (highest first)
         """
-        # Build groups for deduplication
-        # Key: metadata_key or title_author_key -> list of (library, rank, result)
-        exact_groups: dict[tuple, list[tuple[str, int, SearchResult]]] = {}
+        # Group all results by title+author key
+        # Key: title_author_key -> list of (library, rank, result)
         title_author_groups: dict[tuple, list[tuple[str, int, SearchResult]]] = {}
         
         for slug, items in results_by_library.items():
             for rank, result in items:
-                # Try exact match first
-                exact_key = result.metadata_key()
-                if exact_key not in exact_groups:
-                    exact_groups[exact_key] = []
-                exact_groups[exact_key].append((slug, rank, result))
-                
-                # Also index by title+author
                 ta_key = result.title_author_key()
                 if ta_key not in title_author_groups:
                     title_author_groups[ta_key] = []
                 title_author_groups[ta_key].append((slug, rank, result))
         
-        # Build combined results
+        # Build combined results from title+author groups
         combined_results: list[CombinedSearchResult] = []
-        processed_results: set[tuple] = set()  # Track processed exact keys
         
-        # First, process exact matches (all metadata identical)
-        for exact_key, group in exact_groups.items():
-            if exact_key in processed_results:
-                continue
-            
-            # Check if this group has items from multiple libraries
+        for ta_key, group in title_author_groups.items():
+            # Get unique libraries in this group
             libraries_in_group = set(item[0] for item in group)
+            library_count = len(libraries_in_group)
             
-            if len(libraries_in_group) > 1:
-                # Multiple libraries have exact same metadata - merge
-                primary = group[0][2]
-                duplicates = [item[2] for item in group[1:]]
-                best_rank = min(item[1] for item in group)
-                
-                # Score based on match level and library count
-                score = self._calculate_score(
-                    match_level="exact",
-                    library_count=len(libraries_in_group),
-                    best_rank=best_rank,
-                )
-                
-                combined_results.append(CombinedSearchResult(
-                    primary=primary,
-                    duplicates=duplicates,
-                    match_level="exact",
-                    score=score,
-                ))
-                
-                processed_results.add(exact_key)
+            # Check if all items have the same metadata (exact match)
+            metadata_keys = set(item[2].metadata_key() for item in group)
+            is_exact_match = len(metadata_keys) == 1 and library_count > 1
+            
+            # Get the best-ranked item as primary
+            best_rank = min(item[1] for item in group)
+            primary_item = next(item for item in group if item[1] == best_rank)
+            primary = primary_item[2]
+            
+            # Collect duplicates (items from other libraries)
+            duplicates = []
+            if library_count > 1:
+                # Get one item per library (the best-ranked from each)
+                seen_libraries = {primary.library_slug}
+                for _, _, result in sorted(group, key=lambda x: x[1]):
+                    if result.library_slug not in seen_libraries:
+                        duplicates.append(result)
+                        seen_libraries.add(result.library_slug)
+            
+            # Determine match level
+            if library_count == 1:
+                match_level = "unique"
+            elif is_exact_match:
+                match_level = "exact"
             else:
-                # Single library - check for title+author matches
-                ta_key = group[0][2].title_author_key()
-                ta_group = title_author_groups.get(ta_key, [])
-                ta_libraries = set(item[0] for item in ta_group)
-                
-                if len(ta_libraries) > 1:
-                    # Multiple libraries have same title+author but different metadata
-                    # Keep items separate but note they may be related
-                    _, rank, result = group[0]
-                    score = self._calculate_score(
-                        match_level="title_author",
-                        library_count=len(ta_libraries),
-                        best_rank=rank,
-                    )
-                    
-                    combined_results.append(CombinedSearchResult(
-                        primary=result,
-                        duplicates=[],
-                        match_level="title_author",
-                        score=score,
-                    ))
-                else:
-                    # Unique to single library
-                    _, rank, result = group[0]
-                    score = self._calculate_score(
-                        match_level="unique",
-                        library_count=1,
-                        best_rank=rank,
-                    )
-                    
-                    combined_results.append(CombinedSearchResult(
-                        primary=result,
-                        duplicates=[],
-                        match_level="unique",
-                        score=score,
-                    ))
-                
-                processed_results.add(exact_key)
+                match_level = "title_author"
+            
+            # Calculate score
+            score = self._calculate_score(
+                match_level=match_level,
+                library_count=library_count,
+                best_rank=best_rank,
+            )
+            
+            combined_results.append(CombinedSearchResult(
+                primary=primary,
+                duplicates=duplicates,
+                match_level=match_level,
+                score=score,
+            ))
         
         # Sort by score (highest first)
         combined_results.sort(key=lambda x: x.score, reverse=True)

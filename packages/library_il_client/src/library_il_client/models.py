@@ -1,8 +1,36 @@
 """Data models for library.org.il interactions."""
 
+import re
 from dataclasses import dataclass, field
 from datetime import date
 from typing import Optional
+
+
+def normalize_text(text: Optional[str]) -> Optional[str]:
+    """
+    Normalize text for comparison by keeping only letters, numbers, and spaces.
+    
+    This replaces punctuation like commas, parentheses, colons, hyphens, etc.
+    with spaces so that minor formatting differences don't prevent matching.
+    
+    Examples:
+        "כראמל (10) הסוף?" -> "כראמל 10 הסוף"
+        "ברנע-גולדברג, מאירה" -> "ברנע גולדברג מאירה"
+    """
+    if text is None:
+        return None
+    
+    # Replace non-word characters (except spaces) with spaces
+    # This ensures hyphens, commas, etc. become spaces rather than being removed
+    normalized = re.sub(r'[^\w\s]', ' ', text, flags=re.UNICODE)
+    
+    # Also replace underscores with spaces (since \w includes underscores)
+    normalized = normalized.replace('_', ' ')
+    
+    # Collapse multiple spaces into single space and strip
+    normalized = re.sub(r'\s+', ' ', normalized).strip()
+    
+    return normalized if normalized else None
 
 
 @dataclass
@@ -91,23 +119,36 @@ class SearchResult:
         return f"{self.title}{author_str}"
     
     def metadata_key(self) -> tuple:
-        """Return a tuple of all metadata fields for comparison/deduplication."""
+        """
+        Return a normalized tuple of all metadata fields for comparison/deduplication.
+        
+        Fields are normalized by stripping non-letter/number/space characters
+        so that minor formatting differences don't prevent matching.
+        """
         return (
-            self.title,
-            self.author,
-            self.classification,
-            self.shelf_sign,
-            self.series,
-            self.series_number,
+            normalize_text(self.title),
+            normalize_text(self.author),
+            normalize_text(self.classification),
+            normalize_text(self.shelf_sign),
+            normalize_text(self.series),
+            normalize_text(self.series_number),
         )
     
     def title_author_key(self) -> tuple:
-        """Return a tuple of title and author for matching."""
-        return (self.title, self.author)
+        """
+        Return a normalized tuple of title and author for matching.
+        
+        Fields are normalized by stripping non-letter/number/space characters.
+        """
+        return (normalize_text(self.title), normalize_text(self.author))
     
-    def title_key(self) -> str:
-        """Return just the title for matching."""
-        return self.title
+    def title_key(self) -> Optional[str]:
+        """
+        Return the normalized title for matching.
+        
+        The title is normalized by stripping non-letter/number/space characters.
+        """
+        return normalize_text(self.title)
 
 
 @dataclass

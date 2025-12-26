@@ -12,10 +12,88 @@ from library_il_client import (
     SearchResult,
     SearchResults,
 )
+from library_il_client.models import normalize_text
 
 
 # Configure pytest-asyncio
 pytest_plugins = ('pytest_asyncio',)
+
+
+class TestNormalizeText:
+    """Tests for the normalize_text function used in deduplication."""
+    
+    def test_removes_parentheses(self):
+        """Test that parentheses are replaced with spaces."""
+        assert normalize_text("כראמל (10) הסוף") == "כראמל 10 הסוף"
+    
+    def test_removes_punctuation(self):
+        """Test that various punctuation is replaced with spaces."""
+        assert normalize_text("Hello, World!") == "Hello World"
+        assert normalize_text("Test: (1) - [2] {3}") == "Test 1 2 3"
+    
+    def test_replaces_hyphens_with_spaces(self):
+        """Test that hyphens are replaced with spaces, not removed."""
+        assert normalize_text("ברנע-גולדברג, מאירה") == "ברנע גולדברג מאירה"
+    
+    def test_collapses_multiple_spaces(self):
+        """Test that multiple spaces are collapsed to single space."""
+        assert normalize_text("word   word") == "word word"
+        assert normalize_text("a  ,  b") == "a b"
+    
+    def test_strips_whitespace(self):
+        """Test that leading/trailing whitespace is stripped."""
+        assert normalize_text("  text  ") == "text"
+    
+    def test_handles_none(self):
+        """Test that None input returns None."""
+        assert normalize_text(None) is None
+    
+    def test_handles_empty_string(self):
+        """Test that empty string returns None."""
+        assert normalize_text("") is None
+        assert normalize_text("   ") is None
+    
+    def test_preserves_hebrew_letters(self):
+        """Test that Hebrew letters are preserved."""
+        assert normalize_text("שלום עולם") == "שלום עולם"
+    
+    def test_preserves_numbers(self):
+        """Test that numbers are preserved."""
+        assert normalize_text("כראמל 10") == "כראמל 10"
+
+
+class TestSearchResultKeys:
+    """Tests for SearchResult key methods."""
+    
+    def test_metadata_key_normalized(self):
+        """Test that metadata_key returns normalized values."""
+        result = SearchResult(
+            title="כראמל (10) הסוף?",
+            author="ברנע-גולדברג, מאירה",
+            classification="קריאה מתקדמת",
+        )
+        
+        key = result.metadata_key()
+        assert key[0] == "כראמל 10 הסוף"  # Title normalized
+        assert key[1] == "ברנע גולדברג מאירה"  # Author normalized
+    
+    def test_matching_results_have_same_keys(self):
+        """Test that similar results with different formatting have the same keys."""
+        result1 = SearchResult(
+            title="כראמל 10 הסוף?",
+            author="ברנע-גולדברג, מאירה",
+            classification="קריאה מתקדמת",
+        )
+        
+        result2 = SearchResult(
+            title="כראמל (10) הסוף?",
+            author="ברנע גולדברג , מאירה",
+            classification="קריאה מתקדמת",
+        )
+        
+        assert result1.metadata_key() == result2.metadata_key()
+        assert result1.title_author_key() == result2.title_author_key()
+        assert result1.title_key() == result2.title_key()
 
 
 class TestLibraryClientSearch:
