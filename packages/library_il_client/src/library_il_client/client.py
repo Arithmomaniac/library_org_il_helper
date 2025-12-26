@@ -16,6 +16,8 @@ from library_il_client.models import (
     HistoryItem,
     PaginatedHistory,
     RenewalResult,
+    SearchResult,
+    SearchResults,
 )
 
 
@@ -648,3 +650,217 @@ class LibraryClient:
         """
         history = await self.get_checkout_history()
         return history.items
+    
+    async def search(
+        self,
+        title: Optional[str] = None,
+        author: Optional[str] = None,
+        series: Optional[str] = None,
+        max_results: int = 20,
+    ) -> SearchResults:
+        """
+        Search the library catalog.
+        
+        Note: This method does NOT require login - searches are public.
+        
+        Args:
+            title: Search by title (כותר)
+            author: Search by author (מחבר)
+            series: Search by series (סדרה)
+            max_results: Maximum number of results to return (default 20)
+            
+        Returns:
+            SearchResults containing matching books.
+        """
+        # Get the search page to obtain CSRF token
+        search_url = urljoin(self.base_url, "/agron-catalog/simple-search-submenu")
+        response = await self._client.get(search_url)
+        response.raise_for_status()
+        
+        csrf_token = self._get_csrf_token(response.text)
+        
+        # Build search form data
+        form_data = self._build_search_form(title, author, series, csrf_token)
+        
+        # Submit search
+        results_url = urljoin(self.base_url, "/index.php?option=com_agronsearch&task=results&Itemid=72")
+        response = await self._client.post(results_url, data=form_data)
+        response.raise_for_status()
+        
+        # Parse results from first page
+        results = self._parse_search_results(response.text)
+        
+        # If we need more results and there are more pages, fetch additional pages
+        if max_results > len(results.items) and results.has_next:
+            remaining = max_results - len(results.items)
+            page = 2
+            
+            while remaining > 0 and page <= results.total_pages:
+                # Fetch next page
+                next_results = await self._fetch_search_page(page)
+                results.items.extend(next_results.items[:remaining])
+                remaining -= len(next_results.items)
+                page += 1
+                
+                if not next_results.items:
+                    break
+        
+        # Limit results to max_results
+        results.items = results.items[:max_results]
+        
+        return results
+    
+    def _build_search_form(
+        self,
+        title: Optional[str],
+        author: Optional[str],
+        series: Optional[str],
+        csrf_token: Optional[str],
+    ) -> dict:
+        """Build the search form data."""
+        # Field values for column0 select:
+        # 0 = כותר (Title)
+        # 1 = מחבר (Author)
+        # 8 = סדרה (Series)
+        
+        form_data = {
+            "column0": "0",  # Title by default
+            "exprStr0": "",
+            "matchBy0": "0",  # Anywhere in field
+            "mediatype": "0",  # All media types
+            "orderBy": "0",  # Order by catalog date
+            "newSearch": "1",
+        }
+        
+        # Set primary search field
+        if title:
+            form_data["column0"] = "0"  # Title
+            form_data["exprStr0"] = title
+        elif author:
+            form_data["column0"] = "1"  # Author
+            form_data["exprStr0"] = author
+        elif series:
+            form_data["column0"] = "8"  # Series
+            form_data["exprStr0"] = series
+        
+        # Add CSRF token if available
+        if csrf_token:
+            form_data[csrf_token] = "1"
+        
+        return form_data
+    
+    async def _fetch_search_page(self, page: int) -> SearchResults:
+        """Fetch a specific page of search results."""
+        # The library uses a different URL pattern for pagination
+        page_url = urljoin(
+            self.base_url,
+            f"/index.php/agron-catalog/search-results-menu?start={(page - 1) * 20}"
+        )
+        response = await self._client.get(page_url)
+        response.raise_for_status()
+        
+        return self._parse_search_results(response.text)
+    
+    def _parse_search_results(self, html: str) -> SearchResults:
+        """Parse search results from HTML."""
+        soup = BeautifulSoup(html, "lxml")
+        items = []
+        total_count = 0
+        total_pages = 1
+        current_page = 1
+        
+        # Get total count
+        for text in soup.stripped_strings:
+            if "סה''כ תוצאות:" in text:
+                match = re.search(r"(\d+)", text)
+                if match:
+                    total_count = int(match.group(1))
+                    # Calculate total pages (20 results per page)
+                    total_pages = (total_count + 19) // 20
+                break
+        
+        # Check for "no results" message
+        if any("לא נמצאו תוצאות" in str(text) for text in soup.stripped_strings):
+            return SearchResults(
+                items=[],
+                total_count=0,
+                page=1,
+                total_pages=1,
+                library_slug=self.library_slug,
+            )
+        
+        # Find result items by looking for title links
+        title_links = soup.find_all(
+            "a", 
+            href=lambda x: x and "view=details" in str(x) and "#copies" not in str(x)
+        )
+        
+        for link in title_links:
+            item = self._parse_search_item(link)
+            if item:
+                items.append(item)
+        
+        return SearchResults(
+            items=items,
+            total_count=total_count,
+            page=current_page,
+            total_pages=total_pages,
+            library_slug=self.library_slug,
+        )
+    
+    def _parse_search_item(self, title_link) -> Optional[SearchResult]:
+        """Parse a single search result item."""
+        try:
+            title = title_link.get_text(strip=True)
+            href = title_link.get("href", "")
+            
+            # Extract title_id from href
+            match = re.search(r"titleId=([A-Za-z0-9]+)", href)
+            title_id = match.group(1) if match else None
+            
+            # Find the parent container
+            parent = title_link.find_parent("div", class_="title-details")
+            if not parent:
+                parent = title_link.find_parent("div")
+            
+            if not parent:
+                return SearchResult(
+                    title=title,
+                    title_id=title_id,
+                    library_slug=self.library_slug,
+                )
+            
+            # Get the containing row for metadata
+            row = parent.find_parent("div", class_="spost") or parent
+            
+            # Extract metadata
+            author = None
+            classification = None
+            shelf_sign = None
+            series = None
+            series_number = None
+            
+            for text in row.stripped_strings:
+                if text.startswith("מחברים:"):
+                    author = text.replace("מחברים:", "").strip()
+                elif text.startswith("מס' מיון:"):
+                    classification = text.replace("מס' מיון:", "").strip()
+                elif text.startswith("סימן מדף:"):
+                    shelf_sign = text.replace("סימן מדף:", "").strip()
+                elif text.startswith("סדרה:"):
+                    series = text.replace("סדרה:", "").strip()
+                elif text.startswith("מס' בסדרה:"):
+                    series_number = text.replace("מס' בסדרה:", "").strip()
+            
+            return SearchResult(
+                title=title,
+                author=author,
+                classification=classification,
+                shelf_sign=shelf_sign,
+                series=series,
+                series_number=series_number,
+                title_id=title_id,
+                library_slug=self.library_slug,
+            )
+        except Exception:
+            return None

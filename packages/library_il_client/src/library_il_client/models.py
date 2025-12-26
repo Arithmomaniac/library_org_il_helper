@@ -71,3 +71,59 @@ class PaginatedHistory:
     total_items: Optional[int] = None
     has_next: bool = False
     has_previous: bool = False
+
+
+@dataclass
+class SearchResult:
+    """Represents a book from search results."""
+    
+    title: str
+    author: Optional[str] = None
+    classification: Optional[str] = None  # מס' מיון - classification number
+    shelf_sign: Optional[str] = None  # סימן מדף
+    series: Optional[str] = None  # סדרה
+    series_number: Optional[str] = None  # מס' בסדרה
+    title_id: Optional[str] = None  # Internal ID for the book
+    library_slug: Optional[str] = None
+    
+    def __str__(self) -> str:
+        author_str = f" / {self.author}" if self.author else ""
+        return f"{self.title}{author_str}"
+    
+    def metadata_key(self) -> tuple:
+        """Return a tuple of all metadata fields for comparison/deduplication."""
+        return (
+            self.title,
+            self.author,
+            self.classification,
+            self.shelf_sign,
+            self.series,
+            self.series_number,
+        )
+    
+    def title_author_key(self) -> tuple:
+        """Return a tuple of title and author for matching."""
+        return (self.title, self.author)
+    
+    def title_key(self) -> str:
+        """Return just the title for matching."""
+        return self.title
+
+
+@dataclass
+class SearchResults:
+    """Paginated search results."""
+    
+    items: list[SearchResult] = field(default_factory=list)
+    total_count: int = 0
+    page: int = 1
+    total_pages: int = 1
+    library_slug: Optional[str] = None
+    
+    @property
+    def has_next(self) -> bool:
+        return self.page < self.total_pages
+    
+    @property
+    def has_previous(self) -> bool:
+        return self.page > 1
