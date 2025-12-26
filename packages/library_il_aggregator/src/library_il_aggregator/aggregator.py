@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from typing import Optional
 
@@ -36,13 +37,14 @@ class LibraryAccount:
 
 class LibraryAggregator:
     """
-    Aggregates library data from multiple library.org.il accounts.
+    Aggregates library data from multiple library.org.il accounts using async operations.
     
     This class manages multiple LibraryClient instances and combines their
     data into unified views. It supports:
     - Multiple libraries
     - Multiple accounts at the same library (e.g., family members)
     - Different credentials per library
+    - Parallel fetching for improved performance
     
     Example with multiple accounts:
         >>> accounts = [
@@ -50,20 +52,20 @@ class LibraryAggregator:
         ...     LibraryAccount("shemesh", "user2_tz", "user2_pass", label="child"),
         ...     LibraryAccount("betshemesh", "user1_tz", "user1_pass"),
         ... ]
-        >>> with LibraryAggregator(accounts) as aggregator:
-        ...     aggregator.login_all()
-        ...     all_books = aggregator.get_all_checked_out_books()
+        >>> async with LibraryAggregator(accounts) as aggregator:
+        ...     await aggregator.login_all()
+        ...     all_books = await aggregator.get_all_checked_out_books()
         ...     for book in all_books.sorted_by_due_date():
         ...         print(f"[{book.library_slug}] {book.title}")
     
     Simple usage with same credentials:
-        >>> with LibraryAggregator.from_slugs(
+        >>> async with LibraryAggregator.from_slugs(
         ...     ["shemesh", "betshemesh"],
         ...     username="your_tz",
         ...     password="your_pass"
         ... ) as aggregator:
-        ...     aggregator.login_all()
-        ...     books = aggregator.get_all_checked_out_books()
+        ...     await aggregator.login_all()
+        ...     books = await aggregator.get_all_checked_out_books()
     """
     
     def __init__(self, accounts: list[LibraryAccount]):
@@ -104,18 +106,20 @@ class LibraryAggregator:
         ]
         return cls(accounts)
     
-    def __enter__(self) -> "LibraryAggregator":
-        """Context manager entry."""
+    async def __aenter__(self) -> "LibraryAggregator":
+        """Async context manager entry."""
         return self
     
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
-        """Context manager exit."""
-        self.close()
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+        """Async context manager exit."""
+        await self.close()
     
-    def close(self) -> None:
+    async def close(self) -> None:
         """Close all library clients."""
-        for client in self._clients.values():
-            client.close()
+        # Close all clients in parallel
+        close_tasks = [client.close() for client in self._clients.values()]
+        if close_tasks:
+            await asyncio.gather(*close_tasks, return_exceptions=True)
         self._clients.clear()
         self._logged_in.clear()
     
@@ -130,7 +134,7 @@ class LibraryAggregator:
             )
         return self._clients[account_id]
     
-    def login(self, account: LibraryAccount) -> bool:
+    async def login(self, account: LibraryAccount) -> bool:
         """
         Login to a specific library account.
         
@@ -142,78 +146,113 @@ class LibraryAggregator:
         """
         client = self._get_or_create_client(account)
         try:
-            client.login(account.username, account.password)
+            await client.login(account.username, account.password)
             self._logged_in.add(account.account_id)
             return True
         except LoginError:
             return False
     
-    def login_all(self) -> dict[str, bool]:
+    async def login_all(self) -> dict[str, bool]:
         """
-        Login to all configured library accounts.
+        Login to all configured library accounts in parallel.
         
         Returns:
             Dictionary mapping account_id to login success status.
         """
-        results = {}
-        for account in self.accounts:
-            results[account.account_id] = self.login(account)
-        return results
+        # Create login tasks for all accounts in parallel
+        login_tasks = [self.login(account) for account in self.accounts]
+        results = await asyncio.gather(*login_tasks, return_exceptions=True)
+        
+        # Build results dictionary
+        return {
+            account.account_id: result if not isinstance(result, Exception) else False
+            for account, result in zip(self.accounts, results)
+        }
     
-    def get_all_checked_out_books(self) -> AggregatedBooks:
+    async def get_all_checked_out_books(self) -> AggregatedBooks:
         """
-        Get checked out books from all logged-in library accounts.
+        Get checked out books from all logged-in library accounts in parallel.
         
         Returns:
             AggregatedBooks containing books from all accounts.
         """
         result = AggregatedBooks(libraries=list(self._logged_in))
         
-        for account in self.accounts:
+        # Create tasks to fetch books from all accounts in parallel
+        async def fetch_books_for_account(account: LibraryAccount) -> tuple[str, list, Optional[str]]:
             account_id = account.account_id
             if account_id not in self._logged_in:
-                continue
+                return account_id, [], None
             
             client = self._clients.get(account_id)
             if not client:
-                continue
+                return account_id, [], None
             
             try:
-                books = client.get_checked_out_books()
+                books = await client.get_checked_out_books()
                 # Attach account_id to each book for proper labeling
                 for book in books:
                     book.account_id = account_id
-                result.books.extend(books)
+                return account_id, books, None
             except Exception as e:
-                result.errors[account_id] = str(e)
+                return account_id, [], str(e)
+        
+        # Fetch from all accounts in parallel
+        tasks = [fetch_books_for_account(account) for account in self.accounts]
+        results_list = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Process results
+        for result_item in results_list:
+            if isinstance(result_item, Exception):
+                continue
+            account_id, books, error = result_item
+            if error:
+                result.errors[account_id] = error
+            else:
+                result.books.extend(books)
         
         return result
     
-    def get_all_checkout_history(self) -> AggregatedHistory:
+    async def get_all_checkout_history(self) -> AggregatedHistory:
         """
-        Get checkout history from all logged-in library accounts.
+        Get checkout history from all logged-in library accounts in parallel.
         
         Returns:
             AggregatedHistory containing history from all accounts.
         """
         result = AggregatedHistory(libraries=list(self._logged_in))
         
-        for account in self.accounts:
+        # Create tasks to fetch history from all accounts in parallel
+        async def fetch_history_for_account(account: LibraryAccount) -> tuple[str, list, Optional[str]]:
             account_id = account.account_id
             if account_id not in self._logged_in:
-                continue
+                return account_id, [], None
             
             client = self._clients.get(account_id)
             if not client:
-                continue
+                return account_id, [], None
             
             try:
-                history = client.get_checkout_history()
+                history = await client.get_checkout_history()
                 # Attach account_id to each history item for proper labeling
                 for item in history.items:
                     item.account_id = account_id
-                result.items.extend(history.items)
+                return account_id, history.items, None
             except Exception as e:
-                result.errors[account_id] = str(e)
+                return account_id, [], str(e)
+        
+        # Fetch from all accounts in parallel
+        tasks = [fetch_history_for_account(account) for account in self.accounts]
+        results_list = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Process results
+        for result_item in results_list:
+            if isinstance(result_item, Exception):
+                continue
+            account_id, items, error = result_item
+            if error:
+                result.errors[account_id] = error
+            else:
+                result.items.extend(items)
         
         return result

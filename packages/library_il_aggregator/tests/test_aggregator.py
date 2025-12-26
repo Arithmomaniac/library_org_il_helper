@@ -11,6 +11,7 @@ import os
 from datetime import date
 
 import pytest
+import pytest_asyncio
 
 from library_il_client import CheckedOutBook, HistoryItem
 from library_il_aggregator import (
@@ -19,6 +20,10 @@ from library_il_aggregator import (
     LibraryAccount,
     LibraryAggregator,
 )
+
+
+# Configure pytest-asyncio
+pytest_plugins = ('pytest_asyncio',)
 
 
 def get_credentials():
@@ -44,8 +49,8 @@ pytestmark = pytest.mark.skipif(
 class TestLibraryAggregator:
     """Tests for the LibraryAggregator."""
     
-    @pytest.fixture
-    def accounts(self):
+    @pytest_asyncio.fixture
+    async def accounts(self):
         """Create accounts for both libraries."""
         username, password = get_credentials()
         return [
@@ -53,39 +58,42 @@ class TestLibraryAggregator:
             LibraryAccount("betshemesh", username, password),
         ]
     
-    @pytest.fixture
-    def aggregator(self, accounts):
+    @pytest_asyncio.fixture
+    async def aggregator(self, accounts):
         """Create a logged-in aggregator."""
         agg = LibraryAggregator(accounts)
-        agg.login_all()
+        await agg.login_all()
         yield agg
-        agg.close()
+        await agg.close()
     
-    def test_login_all_success(self, accounts):
+    @pytest.mark.asyncio
+    async def test_login_all_success(self, accounts):
         """Test logging in to all libraries."""
-        with LibraryAggregator(accounts) as agg:
-            results = agg.login_all()
+        async with LibraryAggregator(accounts) as agg:
+            results = await agg.login_all()
             
             assert len(results) == 2
             assert all(success for success in results.values())
     
-    def test_from_slugs_convenience_method(self):
+    @pytest.mark.asyncio
+    async def test_from_slugs_convenience_method(self):
         """Test the from_slugs convenience method."""
         username, password = get_credentials()
         
-        with LibraryAggregator.from_slugs(
+        async with LibraryAggregator.from_slugs(
             ["shemesh", "betshemesh"],
             username=username,
             password=password,
         ) as agg:
-            results = agg.login_all()
+            results = await agg.login_all()
             
             assert len(results) == 2
             assert all(success for success in results.values())
     
-    def test_get_all_checked_out_books(self, aggregator):
+    @pytest.mark.asyncio
+    async def test_get_all_checked_out_books(self, aggregator):
         """Test fetching checked out books from all libraries."""
-        result = aggregator.get_all_checked_out_books()
+        result = await aggregator.get_all_checked_out_books()
         
         assert isinstance(result, AggregatedBooks)
         assert isinstance(result.books, list)
@@ -99,15 +107,17 @@ class TestLibraryAggregator:
             assert isinstance(book, CheckedOutBook)
             assert book.title is not None
     
-    def test_aggregated_books_total_count(self, aggregator):
+    @pytest.mark.asyncio
+    async def test_aggregated_books_total_count(self, aggregator):
         """Test the total_count property of AggregatedBooks."""
-        result = aggregator.get_all_checked_out_books()
+        result = await aggregator.get_all_checked_out_books()
         
         assert result.total_count == len(result.books)
     
-    def test_aggregated_books_sorted_by_due_date(self, aggregator):
+    @pytest.mark.asyncio
+    async def test_aggregated_books_sorted_by_due_date(self, aggregator):
         """Test sorting books by due date."""
-        result = aggregator.get_all_checked_out_books()
+        result = await aggregator.get_all_checked_out_books()
         sorted_books = result.sorted_by_due_date()
         
         # Verify sorting order
@@ -118,9 +128,10 @@ class TestLibraryAggregator:
             if book.due_date:
                 previous_date = book.due_date
     
-    def test_aggregated_books_by_library(self, aggregator):
+    @pytest.mark.asyncio
+    async def test_aggregated_books_by_library(self, aggregator):
         """Test grouping books by library."""
-        result = aggregator.get_all_checked_out_books()
+        result = await aggregator.get_all_checked_out_books()
         by_library = result.by_library
         
         assert isinstance(by_library, dict)
@@ -130,9 +141,10 @@ class TestLibraryAggregator:
             for book in books:
                 assert book.library_slug == slug
     
-    def test_get_all_checkout_history(self, aggregator):
+    @pytest.mark.asyncio
+    async def test_get_all_checkout_history(self, aggregator):
         """Test fetching checkout history from all libraries."""
-        result = aggregator.get_all_checkout_history()
+        result = await aggregator.get_all_checkout_history()
         
         assert isinstance(result, AggregatedHistory)
         assert isinstance(result.items, list)
@@ -142,15 +154,17 @@ class TestLibraryAggregator:
             assert isinstance(item, HistoryItem)
             assert item.title is not None
     
-    def test_aggregated_history_total_count(self, aggregator):
+    @pytest.mark.asyncio
+    async def test_aggregated_history_total_count(self, aggregator):
         """Test the total_count property of AggregatedHistory."""
-        result = aggregator.get_all_checkout_history()
+        result = await aggregator.get_all_checkout_history()
         
         assert result.total_count == len(result.items)
     
-    def test_aggregated_history_sorted_by_return_date(self, aggregator):
+    @pytest.mark.asyncio
+    async def test_aggregated_history_sorted_by_return_date(self, aggregator):
         """Test sorting history by return date (descending)."""
-        result = aggregator.get_all_checkout_history()
+        result = await aggregator.get_all_checkout_history()
         sorted_items = result.sorted_by_return_date(descending=True)
         
         # Verify sorting order (descending)
@@ -161,9 +175,10 @@ class TestLibraryAggregator:
             if item.return_date:
                 previous_date = item.return_date
     
-    def test_aggregated_history_by_library(self, aggregator):
+    @pytest.mark.asyncio
+    async def test_aggregated_history_by_library(self, aggregator):
         """Test grouping history by library."""
-        result = aggregator.get_all_checkout_history()
+        result = await aggregator.get_all_checkout_history()
         by_library = result.by_library
         
         assert isinstance(by_library, dict)
@@ -176,9 +191,10 @@ class TestLibraryAggregator:
             for item in items:
                 assert item.library_slug == slug
     
-    def test_combined_history_from_both_libraries(self, aggregator):
+    @pytest.mark.asyncio
+    async def test_combined_history_from_both_libraries(self, aggregator):
         """Test that history is combined from both shemesh and betshemesh."""
-        result = aggregator.get_all_checkout_history()
+        result = await aggregator.get_all_checkout_history()
         
         library_slugs = {item.library_slug for item in result.items}
         

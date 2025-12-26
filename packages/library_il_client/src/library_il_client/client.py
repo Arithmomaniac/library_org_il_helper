@@ -36,9 +36,9 @@ class SessionExpiredError(LibraryClientError):
 
 class LibraryClient:
     """
-    Client for interacting with library.org.il Israeli public library websites.
+    Async client for interacting with library.org.il Israeli public library websites.
     
-    This client manages HTTP sessions and provides methods to:
+    This client manages HTTP sessions and provides async methods to:
     - Login to the library website
     - Get currently checked out books
     - Renew checked out books
@@ -47,9 +47,9 @@ class LibraryClient:
     The library.org.il websites are based on Joomla with the Agron library component.
     
     Example:
-        >>> with LibraryClient("shemesh") as client:
-        ...     client.login("your_teudat_zehut", "your_password")
-        ...     books = client.get_checked_out_books()
+        >>> async with LibraryClient("shemesh") as client:
+        ...     await client.login("your_teudat_zehut", "your_password")
+        ...     books = await client.get_checked_out_books()
         ...     for book in books:
         ...         print(book)
     
@@ -57,9 +57,9 @@ class LibraryClient:
         >>> import os
         >>> os.environ["TEUDAT_ZEHUT"] = "your_teudat_zehut"
         >>> os.environ["LIBRARY_PASSWORD"] = "your_password"
-        >>> with LibraryClient("shemesh") as client:
-        ...     client.login()  # Uses environment variables
-        ...     history = client.get_checkout_history()
+        >>> async with LibraryClient("shemesh") as client:
+        ...     await client.login()  # Uses environment variables
+        ...     history = await client.get_checkout_history()
     """
     
     # Hebrew day names to strip from dates
@@ -88,8 +88,8 @@ class LibraryClient:
         self._logged_in = False
         self._csrf_token: Optional[str] = None
         
-        # Create HTTP client with session management
-        self._client = httpx.Client(
+        # Create async HTTP client with session management
+        self._client = httpx.AsyncClient(
             follow_redirects=True,
             timeout=30.0,
             headers={
@@ -99,17 +99,17 @@ class LibraryClient:
             },
         )
     
-    def __enter__(self) -> "LibraryClient":
-        """Context manager entry."""
+    async def __aenter__(self) -> "LibraryClient":
+        """Async context manager entry."""
         return self
     
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
-        """Context manager exit."""
-        self.close()
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+        """Async context manager exit."""
+        await self.close()
     
-    def close(self) -> None:
+    async def close(self) -> None:
         """Close the HTTP client."""
-        self._client.close()
+        await self._client.aclose()
     
     @property
     def is_logged_in(self) -> bool:
@@ -166,7 +166,7 @@ class LibraryClient:
         
         return None
     
-    def login(
+    async def login(
         self,
         username: Optional[str] = None,
         password: Optional[str] = None,
@@ -192,7 +192,7 @@ class LibraryClient:
         
         # Get the login page to obtain CSRF token
         login_url = urljoin(self.base_url, "/mng")
-        response = self._client.get(login_url)
+        response = await self._client.get(login_url)
         response.raise_for_status()
         
         self._csrf_token = self._get_csrf_token(response.text)
@@ -210,7 +210,7 @@ class LibraryClient:
             form_data[self._csrf_token] = "1"
         
         # Submit login form
-        response = self._client.post(
+        response = await self._client.post(
             urljoin(self.base_url, "/mng?task=user.login"),
             data=form_data,
         )
@@ -255,7 +255,7 @@ class LibraryClient:
         if not self._logged_in:
             raise LibraryClientError("Not logged in. Call login() first.")
     
-    def get_checked_out_books(self) -> list[CheckedOutBook]:
+    async def get_checked_out_books(self) -> list[CheckedOutBook]:
         """
         Get the list of currently checked out books.
         
@@ -268,7 +268,7 @@ class LibraryClient:
         """
         self._ensure_logged_in()
         
-        response = self._client.get(urljoin(self.base_url, "/user-loans"))
+        response = await self._client.get(urljoin(self.base_url, "/user-loans"))
         response.raise_for_status()
         
         # Check if session expired (redirected to login)
@@ -377,7 +377,7 @@ class LibraryClient:
         except Exception:
             return None
     
-    def renew_book(self, book: CheckedOutBook) -> RenewalResult:
+    async def renew_book(self, book: CheckedOutBook) -> RenewalResult:
         """
         Renew a checked out book.
         
@@ -399,13 +399,10 @@ class LibraryClient:
                 message="Cannot renew: no barcode available",
             )
         
-        return self._renew_books([book.barcode])[0] if book.barcode else RenewalResult(
-            book=book,
-            success=False,
-            message="Cannot renew: no barcode available",
-        )
+        results = await self._renew_books([book.barcode])
+        return results[0]
     
-    def renew_books(self, books: list[CheckedOutBook]) -> list[RenewalResult]:
+    async def renew_books(self, books: list[CheckedOutBook]) -> list[RenewalResult]:
         """
         Renew multiple checked out books.
         
@@ -424,9 +421,9 @@ class LibraryClient:
                 for b in books
             ]
         
-        return self._renew_books(barcodes, books)
+        return await self._renew_books(barcodes, books)
     
-    def _renew_books(
+    async def _renew_books(
         self,
         barcodes: list[str],
         books: Optional[list[CheckedOutBook]] = None,
@@ -447,7 +444,7 @@ class LibraryClient:
             if isinstance(form_data["cid[]"], list):
                 form_data["cid[]"].append(barcode)
         
-        response = self._client.post(
+        response = await self._client.post(
             urljoin(self.base_url, "/index.php/user-loans?task=length&view=loans"),
             data=form_data,
         )
@@ -505,22 +502,22 @@ class LibraryClient:
         
         return results
     
-    def renew_all_books(self) -> list[RenewalResult]:
+    async def renew_all_books(self) -> list[RenewalResult]:
         """
         Renew all currently checked out books.
         
         Returns:
             List of RenewalResult for each book.
         """
-        books = self.get_checked_out_books()
+        books = await self.get_checked_out_books()
         renewables = [b for b in books if b.can_renew and b.barcode]
         
         if not renewables:
             return []
         
-        return self.renew_books(renewables)
+        return await self.renew_books(renewables)
     
-    def get_checkout_history(self, page: int = 1) -> PaginatedHistory:
+    async def get_checkout_history(self, page: int = 1) -> PaginatedHistory:
         """
         Get the checkout history (previously borrowed books).
         
@@ -538,7 +535,7 @@ class LibraryClient:
         """
         self._ensure_logged_in()
         
-        response = self._client.get(urljoin(self.base_url, "/loans-history"))
+        response = await self._client.get(urljoin(self.base_url, "/loans-history"))
         response.raise_for_status()
         
         # Check if session expired
@@ -639,7 +636,7 @@ class LibraryClient:
         except Exception:
             return None
     
-    def get_all_checkout_history(self) -> list[HistoryItem]:
+    async def get_all_checkout_history(self) -> list[HistoryItem]:
         """
         Get all checkout history items.
         
@@ -649,4 +646,5 @@ class LibraryClient:
         Returns:
             List of all HistoryItem objects.
         """
-        return self.get_checkout_history().items
+        history = await self.get_checkout_history()
+        return history.items
