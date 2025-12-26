@@ -19,6 +19,8 @@ from library_il_client.models import (
     HistoryItem,
     PaginatedHistory,
     RenewalResult,
+    SearchResult,
+    SearchResults,
 )
 
 __all__ = [
@@ -30,4 +32,6 @@ __all__ = [
     "HistoryItem",
     "PaginatedHistory",
     "RenewalResult",
+    "SearchResult",
+    "SearchResults",
 ]

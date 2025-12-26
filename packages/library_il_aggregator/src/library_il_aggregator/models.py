@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Optional
 
-from library_il_client import CheckedOutBook, HistoryItem
+from library_il_client import CheckedOutBook, HistoryItem, SearchResult
 
 
 @dataclass
@@ -70,3 +70,95 @@ class AggregatedHistory:
             key=lambda i: (i.return_date or date.min, i.title),
             reverse=descending,
         )
+
+
+@dataclass
+class LibrarySearchInfo:
+    """Information about search results from a single library."""
+    
+    library_slug: str
+    total_count: int
+    fetched_count: int
+    
+    @property
+    def has_more(self) -> bool:
+        """Check if there are more results than were fetched."""
+        return self.total_count > self.fetched_count
+
+
+@dataclass
+class CombinedSearchResult:
+    """A search result that may combine books from multiple libraries.
+    
+    This represents either a single book or a group of books that are
+    considered the same (or very similar) across multiple libraries.
+    """
+    
+    # The primary/representative search result
+    primary: SearchResult
+    
+    # Additional results from other libraries that match
+    # (only when merging is enabled and items are identical)
+    duplicates: list[SearchResult] = field(default_factory=list)
+    
+    # Match quality: "exact" (all metadata identical), "title_author" (same title and author), 
+    # "title_only" (same title), or "unique" (no matches)
+    match_level: str = "unique"
+    
+    # Combined score based on ranking position and match count
+    score: float = 0.0
+    
+    @property
+    def all_results(self) -> list[SearchResult]:
+        """Get all results including primary and duplicates."""
+        return [self.primary] + self.duplicates
+    
+    @property
+    def library_slugs(self) -> list[str]:
+        """Get all library slugs where this book was found."""
+        slugs = [self.primary.library_slug] if self.primary.library_slug else []
+        for dup in self.duplicates:
+            if dup.library_slug and dup.library_slug not in slugs:
+                slugs.append(dup.library_slug)
+        return slugs
+    
+    @property
+    def library_count(self) -> int:
+        """Number of libraries where this book was found."""
+        return len(self.library_slugs)
+
+
+@dataclass
+class CombinedSearchResults:
+    """Combined search results from multiple libraries."""
+    
+    # Merged and sorted results
+    items: list[CombinedSearchResult] = field(default_factory=list)
+    
+    # Information about results from each library
+    library_info: list[LibrarySearchInfo] = field(default_factory=list)
+    
+    # Errors encountered during search
+    errors: dict[str, str] = field(default_factory=dict)
+    
+    @property
+    def total_unique_count(self) -> int:
+        """Total number of unique results (after merging)."""
+        return len(self.items)
+    
+    @property
+    def libraries_searched(self) -> list[str]:
+        """List of library slugs that were searched."""
+        return [info.library_slug for info in self.library_info]
+    
+    def get_warnings(self) -> list[str]:
+        """Get warnings about libraries with more results than fetched."""
+        warnings = []
+        for info in self.library_info:
+            if info.has_more:
+                remaining = info.total_count - info.fetched_count
+                warnings.append(
+                    f"{info.library_slug}: {remaining} more results available "
+                    f"(showing {info.fetched_count} of {info.total_count})"
+                )
+        return warnings
