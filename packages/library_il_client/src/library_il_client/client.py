@@ -698,12 +698,15 @@ class LibraryClient:
             while remaining > 0 and page <= results.total_pages:
                 # Fetch next page
                 next_results = await self._fetch_search_page(page)
-                results.items.extend(next_results.items[:remaining])
-                remaining -= len(next_results.items)
-                page += 1
                 
                 if not next_results.items:
                     break
+                
+                # Add only as many items as we still need
+                items_to_add = next_results.items[:remaining]
+                results.items.extend(items_to_add)
+                remaining -= len(items_to_add)
+                page += 1
         
         # Limit results to max_results
         results.items = results.items[:max_results]
@@ -780,7 +783,7 @@ class LibraryClient:
                 break
         
         # Check for "no results" message
-        if any("לא נמצאו תוצאות" in str(text) for text in soup.stripped_strings):
+        if any("לא נמצאו תוצאות" in text for text in soup.stripped_strings):
             return SearchResults(
                 items=[],
                 total_count=0,
