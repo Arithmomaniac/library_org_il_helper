@@ -180,6 +180,8 @@ class SearchAggregator:
             combined_results.append(CombinedSearchResult(
                 title=best_result.title,
                 author=best_result.author,
+                series=best_result.series,
+                series_number=best_result.series_number,
                 library_results=library_results,
                 score=score,
             ))

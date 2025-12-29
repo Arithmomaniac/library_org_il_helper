@@ -156,13 +156,23 @@ Examples:
             if len(libs) > 25:
                 libs = libs[:22] + "..."
             
+            # Series info
+            series_info = ""
+            if item.series:
+                series_info = item.series
+                if item.series_number:
+                    series_info += f" #{item.series_number}"
+            elif item.series_number:
+                series_info = f"#{item.series_number}"
+            
             table_data.append([
                 title,
                 author,
+                series_info,
                 libs,
             ])
         
-        headers = ["Title", "Author", "Libraries"]
+        headers = ["Title", "Author", "Series", "Libraries"]
         print(tabulate(table_data, headers=headers, tablefmt="github"))
         
         # Show if results were truncated

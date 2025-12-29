@@ -93,7 +93,7 @@ class CombinedSearchResult:
     This represents either a single book or a group of books that are
     considered the same (matching title and author) across multiple libraries.
     
-    Only logically common fields (title, author) are exposed at the top level.
+    Common fields (title, author, series, series_number) are exposed at the top level.
     Library-specific fields (classification, shelf_sign, etc.) are accessed
     through the library_results list.
     """
@@ -101,6 +101,8 @@ class CombinedSearchResult:
     # Common fields (from highest-ranked result, deterministic on ties)
     title: str
     author: Optional[str] = None
+    series: Optional[str] = None
+    series_number: Optional[str] = None
     
     # All library-specific results for this book
     # Ordered by rank (best first), then alphabetically by library_slug for ties
