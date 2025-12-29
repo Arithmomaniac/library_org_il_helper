@@ -135,12 +135,8 @@ class SearchAggregator:
         
         The algorithm:
         1. Group results by normalized title+author key
-        2. For items in the same group, check if all metadata matches (exact match)
-        3. Score each merged item based on:
-           - Match quality (exact > title+author > unique)
-           - Number of libraries containing the item
-           - Original position in each library's results
-        4. Sort by score (highest first)
+        2. Score each group based on library count and best rank position
+        3. Sort by score (highest first)
         """
         # Group all results by title+author key
         # Key: title_author_key -> list of (library, rank, result)
@@ -157,48 +153,34 @@ class SearchAggregator:
         combined_results: list[CombinedSearchResult] = []
         
         for ta_key, group in title_author_groups.items():
+            # Sort by rank first, then by library_slug for deterministic ties
+            sorted_group = sorted(group, key=lambda x: (x[1], x[0]))
+            
             # Get unique libraries in this group
-            libraries_in_group = set(item[0] for item in group)
-            library_count = len(libraries_in_group)
+            library_count = len(set(item[0] for item in group))
             
-            # Check if all items have the same metadata (exact match)
-            metadata_keys = set(item[2].metadata_key() for item in group)
-            is_exact_match = len(metadata_keys) == 1 and library_count > 1
+            # Get the best-ranked item for common fields
+            best_result = sorted_group[0][2]
+            best_rank = sorted_group[0][1]
             
-            # Get the best-ranked item as primary
-            best_rank = min(item[1] for item in group)
-            primary_item = next(item for item in group if item[1] == best_rank)
-            primary = primary_item[2]
+            # Collect one result per library (best-ranked from each)
+            library_results = []
+            seen_libraries = set()
+            for _, _, result in sorted_group:
+                if result.library_slug not in seen_libraries:
+                    library_results.append(result)
+                    seen_libraries.add(result.library_slug)
             
-            # Collect duplicates (items from other libraries)
-            duplicates = []
-            if library_count > 1:
-                # Get one item per library (the best-ranked from each)
-                seen_libraries = {primary.library_slug}
-                for _, _, result in sorted(group, key=lambda x: x[1]):
-                    if result.library_slug not in seen_libraries:
-                        duplicates.append(result)
-                        seen_libraries.add(result.library_slug)
-            
-            # Determine match level
-            if library_count == 1:
-                match_level = "unique"
-            elif is_exact_match:
-                match_level = "exact"
-            else:
-                match_level = "title_author"
-            
-            # Calculate score
+            # Calculate score: library count + rank bonus
             score = self._calculate_score(
-                match_level=match_level,
                 library_count=library_count,
                 best_rank=best_rank,
             )
             
             combined_results.append(CombinedSearchResult(
-                primary=primary,
-                duplicates=duplicates,
-                match_level=match_level,
+                title=best_result.title,
+                author=best_result.author,
+                library_results=library_results,
                 score=score,
             ))
         
@@ -209,7 +191,6 @@ class SearchAggregator:
     
     def _calculate_score(
         self,
-        match_level: str,
         library_count: int,
         best_rank: int,
     ) -> float:
@@ -217,21 +198,11 @@ class SearchAggregator:
         Calculate a score for ranking search results.
         
         Factors:
-        - Match level: exact > title_author > title_only > unique
         - Library count: more libraries = higher score
-        - Best rank: lower rank = higher score
+        - Best rank: lower rank position = higher score
         """
-        # Base score from match level
-        match_scores = {
-            "exact": 100,
-            "title_author": 75,
-            "title_only": 50,
-            "unique": 25,
-        }
-        score = match_scores.get(match_level, 0)
-        
-        # Bonus for being in multiple libraries
-        score += library_count * 10
+        # Base score from library count
+        score = library_count * 10
         
         # Bonus for higher ranking (lower position number)
         # Max bonus of 20 for rank 0, decreasing to 0 for rank 20+

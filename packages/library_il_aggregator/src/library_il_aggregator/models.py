@@ -91,35 +91,33 @@ class CombinedSearchResult:
     """A search result that may combine books from multiple libraries.
     
     This represents either a single book or a group of books that are
-    considered the same (or very similar) across multiple libraries.
+    considered the same (matching title and author) across multiple libraries.
+    
+    Only logically common fields (title, author) are exposed at the top level.
+    Library-specific fields (classification, shelf_sign, etc.) are accessed
+    through the library_results list.
     """
     
-    # The primary/representative search result
-    primary: SearchResult
+    # Common fields (from highest-ranked result, deterministic on ties)
+    title: str
+    author: Optional[str] = None
     
-    # Additional results from other libraries that match
-    # (only when merging is enabled and items are identical)
-    duplicates: list[SearchResult] = field(default_factory=list)
+    # All library-specific results for this book
+    # Ordered by rank (best first), then alphabetically by library_slug for ties
+    library_results: list[SearchResult] = field(default_factory=list)
     
-    # Match quality: "exact" (all metadata identical), "title_author" (same title and author), 
-    # "title_only" (same title), or "unique" (no matches)
-    match_level: str = "unique"
-    
-    # Combined score based on ranking position and match count
+    # Combined score based on library count and ranking position
     score: float = 0.0
-    
-    @property
-    def all_results(self) -> list[SearchResult]:
-        """Get all results including primary and duplicates."""
-        return [self.primary] + self.duplicates
     
     @property
     def library_slugs(self) -> list[str]:
         """Get all library slugs where this book was found."""
-        slugs = [self.primary.library_slug] if self.primary.library_slug else []
-        for dup in self.duplicates:
-            if dup.library_slug and dup.library_slug not in slugs:
-                slugs.append(dup.library_slug)
+        seen = set()
+        slugs = []
+        for result in self.library_results:
+            if result.library_slug and result.library_slug not in seen:
+                slugs.append(result.library_slug)
+                seen.add(result.library_slug)
         return slugs
     
     @property

@@ -142,12 +142,12 @@ Examples:
         table_data = []
         for item in items_to_show:
             # Title (truncate if too long)
-            title = item.primary.title
+            title = item.title
             if len(title) > 50:
                 title = title[:47] + "..."
             
             # Author (truncate if too long)
-            author = item.primary.author or ""
+            author = item.author or ""
             if len(author) > 30:
                 author = author[:27] + "..."
             
@@ -156,25 +156,13 @@ Examples:
             if len(libs) > 25:
                 libs = libs[:22] + "..."
             
-            # Classification
-            classification = item.primary.classification or ""
-            
-            # Series info
-            series_info = ""
-            if item.primary.series:
-                series_info = item.primary.series
-                if item.primary.series_number:
-                    series_info += f" #{item.primary.series_number}"
-            
             table_data.append([
                 title,
                 author,
                 libs,
-                classification,
-                series_info,
             ])
         
-        headers = ["Title", "Author", "Libraries", "Classification", "Series"]
+        headers = ["Title", "Author", "Libraries"]
         print(tabulate(table_data, headers=headers, tablefmt="github"))
         
         # Show if results were truncated

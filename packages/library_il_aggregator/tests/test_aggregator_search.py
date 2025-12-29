@@ -60,10 +60,9 @@ class TestSearchAggregator:
         
         for item in results.items:
             assert isinstance(item, CombinedSearchResult)
-            assert item.primary is not None
-            assert item.primary.title is not None
+            assert item.title is not None
+            assert len(item.library_results) > 0
             assert item.score > 0
-            assert item.match_level in ["exact", "title_author", "title_only", "unique"]
     
     @pytest.mark.asyncio
     async def test_combined_results_library_slugs(self, aggregator):
