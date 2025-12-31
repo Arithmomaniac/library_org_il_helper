@@ -392,12 +392,19 @@ Examples:
             print()
         
         # Export to file if requested
-        if args.output and export_sections:
-            if args.format == "csv":
-                export_to_csv(export_sections, args.output)
+        if args.output:
+            if not export_sections:
+                print("Warning: No data to export.", file=sys.stderr)
             else:
-                export_to_markdown(export_sections, args.output)
-            print(f"Exported to {args.output}")
+                try:
+                    if args.format == "csv":
+                        export_to_csv(export_sections, args.output)
+                    else:
+                        export_to_markdown(export_sections, args.output)
+                    print(f"Exported to {args.output}")
+                except OSError as e:
+                    print(f"Error: Failed to write to {args.output}: {e}", file=sys.stderr)
+                    return 1
     
     return 0
 
