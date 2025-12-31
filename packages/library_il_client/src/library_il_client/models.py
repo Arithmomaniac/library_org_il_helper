@@ -168,3 +168,51 @@ class SearchResults:
     @property
     def has_previous(self) -> bool:
         return self.page > 1
+
+
+@dataclass
+class BookCopy:
+    """Represents a single copy of a book in a library."""
+    
+    barcode: Optional[str] = None  # מספר - copy number/barcode
+    location: Optional[str] = None  # מיקום - physical location/branch
+    classification: Optional[str] = None  # מס' מיון - classification number
+    shelf_sign: Optional[str] = None  # סימן מדף - shelf sign
+    volume: Optional[str] = None  # כרך - volume number
+    library_slug: Optional[str] = None
+    
+    def __str__(self) -> str:
+        parts = []
+        if self.barcode:
+            parts.append(f"#{self.barcode}")
+        if self.location:
+            parts.append(self.location)
+        if self.shelf_sign:
+            parts.append(f"[{self.shelf_sign}]")
+        return " ".join(parts) if parts else "Copy"
+
+
+@dataclass
+class BookDetails:
+    """Detailed information about a book including all copies."""
+    
+    title: str
+    author: Optional[str] = None
+    title_id: Optional[str] = None
+    classification: Optional[str] = None  # מס' מיון
+    shelf_sign: Optional[str] = None  # סימן מדף
+    media_type: Optional[str] = None  # מדיה
+    series: Optional[str] = None  # סדרה
+    series_number: Optional[str] = None  # מס' בסדרה
+    library_slug: Optional[str] = None
+    copies: list[BookCopy] = field(default_factory=list)
+    
+    @property
+    def copy_count(self) -> int:
+        """Number of copies available."""
+        return len(self.copies)
+    
+    def __str__(self) -> str:
+        author_str = f" / {self.author}" if self.author else ""
+        copies_str = f" ({self.copy_count} copies)" if self.copies else ""
+        return f"{self.title}{author_str}{copies_str}"

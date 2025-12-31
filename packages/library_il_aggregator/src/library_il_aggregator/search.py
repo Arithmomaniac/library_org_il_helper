@@ -5,9 +5,10 @@ from __future__ import annotations
 import asyncio
 from typing import Optional
 
-from library_il_client import LibraryClient, SearchResult, SearchResults
+from library_il_client import BookDetails, LibraryClient, SearchResult, SearchResults
 
 from library_il_aggregator.models import (
+    CombinedBookDetails,
     CombinedSearchResult,
     CombinedSearchResults,
     LibrarySearchInfo,
@@ -212,3 +213,78 @@ class SearchAggregator:
         score += rank_bonus
         
         return float(score)
+    
+    async def get_combined_details(
+        self,
+        slug_id_pairs: list[tuple[str, str]],
+    ) -> CombinedBookDetails:
+        """
+        Get combined book details from multiple libraries by slug-id pairs.
+        
+        This method fetches detailed book information (including copies and locations)
+        for a book from multiple libraries and combines them into a single view.
+        
+        Note: This method does NOT require login - book details are public.
+        
+        Args:
+            slug_id_pairs: List of (library_slug, title_id) tuples specifying
+                          which books to fetch from which libraries.
+                          
+        Returns:
+            CombinedBookDetails with all book details and copies from all libraries.
+            
+        Example:
+            >>> async with SearchAggregator(["shemesh", "betshemesh"]) as aggregator:
+            ...     # First search to get title_ids
+            ...     results = await aggregator.search(title="כראמל")
+            ...     # Get the slug-id pairs from the first result
+            ...     pairs = [(r.library_slug, r.title_id) for r in results.items[0].library_results]
+            ...     # Fetch combined details
+            ...     details = await aggregator.get_combined_details(pairs)
+            ...     print(f"Total copies: {details.total_copy_count}")
+        """
+        # Fetch details from all libraries in parallel
+        async def fetch_details(slug: str, title_id: str) -> tuple[str, Optional[BookDetails], Optional[str]]:
+            try:
+                client = self._get_or_create_client(slug)
+                details = await client.get_book_details(title_id)
+                return slug, details, None
+            except Exception as e:
+                return slug, None, str(e)
+        
+        tasks = [fetch_details(slug, title_id) for slug, title_id in slug_id_pairs]
+        results = await asyncio.gather(*tasks)
+        
+        # Collect results and errors
+        library_details: list[BookDetails] = []
+        errors: dict[str, str] = {}
+        
+        # Use the first successful result for common fields
+        title = ""
+        author = None
+        series = None
+        series_number = None
+        
+        for slug, details, error in results:
+            if error:
+                errors[slug] = error
+                continue
+            
+            if details:
+                library_details.append(details)
+                
+                # Set common fields from first successful result
+                if not title:
+                    title = details.title
+                    author = details.author
+                    series = details.series
+                    series_number = details.series_number
+        
+        return CombinedBookDetails(
+            title=title,
+            author=author,
+            series=series,
+            series_number=series_number,
+            library_details=library_details,
+            errors=errors,
+        )

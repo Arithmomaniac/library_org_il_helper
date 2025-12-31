@@ -129,3 +129,97 @@ class TestSearchAggregatorSingleLibrary:
             
             assert len(results.library_info) == 1
             assert results.library_info[0].library_slug == "betshemesh"
+
+
+class TestSearchAggregatorCombinedDetails:
+    """Tests for the get_combined_details functionality."""
+    
+    @pytest_asyncio.fixture
+    async def aggregator(self):
+        """Create a search aggregator for two libraries."""
+        agg = SearchAggregator(["shemesh", "betshemesh"])
+        yield agg
+        await agg.close()
+    
+    @pytest.mark.asyncio
+    async def test_get_combined_details_returns_details(self, aggregator):
+        """Test that get_combined_details returns CombinedBookDetails."""
+        from library_il_aggregator import CombinedBookDetails
+        
+        # First search to get title_ids
+        results = await aggregator.search(title="כראמל", max_per_library=5)
+        assert len(results.items) > 0
+        
+        # Get the slug-id pairs from the first result
+        item = results.items[0]
+        pairs = [
+            (r.library_slug, r.title_id)
+            for r in item.library_results
+            if r.library_slug and r.title_id
+        ]
+        assert len(pairs) > 0
+        
+        # Fetch combined details
+        details = await aggregator.get_combined_details(pairs)
+        
+        assert isinstance(details, CombinedBookDetails)
+        assert details.title is not None
+        assert len(details.title) > 0
+    
+    @pytest.mark.asyncio
+    async def test_combined_details_has_copies_from_multiple_libraries(self, aggregator):
+        """Test that combined details includes copies from multiple libraries."""
+        # First search to get title_ids
+        results = await aggregator.search(title="כראמל", max_per_library=5)
+        assert len(results.items) > 0
+        
+        # Find a result that's in multiple libraries
+        multi_lib_item = None
+        for item in results.items:
+            if item.library_count >= 2:
+                multi_lib_item = item
+                break
+        
+        if multi_lib_item is None:
+            pytest.skip("No multi-library results found")
+        
+        # Get the slug-id pairs
+        pairs = [
+            (r.library_slug, r.title_id)
+            for r in multi_lib_item.library_results
+            if r.library_slug and r.title_id
+        ]
+        
+        # Fetch combined details
+        details = await aggregator.get_combined_details(pairs)
+        
+        assert details.library_count >= 2
+        assert details.total_copy_count > 0
+        
+        # Check that copies are from multiple libraries
+        copies_by_lib = details.copies_by_library()
+        assert len(copies_by_lib) >= 2
+    
+    @pytest.mark.asyncio
+    async def test_combined_details_format_copies_summary(self, aggregator):
+        """Test that format_copies_summary returns a formatted string."""
+        # First search to get title_ids
+        results = await aggregator.search(title="כראמל", max_per_library=5)
+        assert len(results.items) > 0
+        
+        # Get the slug-id pairs from the first result
+        item = results.items[0]
+        pairs = [
+            (r.library_slug, r.title_id)
+            for r in item.library_results
+            if r.library_slug and r.title_id
+        ]
+        
+        # Fetch combined details
+        details = await aggregator.get_combined_details(pairs)
+        
+        summary = details.format_copies_summary()
+        assert isinstance(summary, str)
+        assert len(summary) > 0
+        # Should contain library:count format
+        assert ":" in summary

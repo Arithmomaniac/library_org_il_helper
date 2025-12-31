@@ -37,6 +37,9 @@ Examples:
   
   # Limit total displayed results
   library-il-search --title "ספר" --limit 10
+  
+  # Show detailed copy information (locations, counts)
+  library-il-search --title "כראמל" --details
 """,
     )
     
@@ -82,6 +85,12 @@ Examples:
         type=int,
         default=0,
         help="Limit total displayed results (0 = no limit)",
+    )
+    result_group.add_argument(
+        "--details",
+        "-d",
+        action="store_true",
+        help="Show detailed copy information (locations, copy counts per library)",
     )
     
     args = parser.parse_args()
@@ -139,12 +148,30 @@ Examples:
         if args.limit > 0:
             items_to_show = items_to_show[:args.limit]
         
+        # If --details flag is set, fetch detailed info for each result
+        details_map = {}
+        if args.details:
+            print("Fetching copy details...")
+            print()
+            for item in items_to_show:
+                # Get slug-id pairs from the search result
+                pairs = []
+                for r in item.library_results:
+                    if r.library_slug and r.title_id:
+                        pairs.append((r.library_slug, r.title_id))
+                
+                if pairs:
+                    combined_details = await aggregator.get_combined_details(pairs)
+                    # Use title as key (normalized for matching)
+                    details_map[item.title] = combined_details
+        
         table_data = []
         for item in items_to_show:
             # Title (truncate if too long)
             title = item.title
-            if len(title) > 50:
-                title = title[:47] + "..."
+            title_display = title
+            if len(title_display) > 50:
+                title_display = title_display[:47] + "..."
             
             # Author (truncate if too long)
             author = item.author or ""
@@ -165,14 +192,27 @@ Examples:
             elif item.series_number:
                 series_info = f"#{item.series_number}"
             
-            table_data.append([
-                title,
+            row = [
+                title_display,
                 author,
                 series_info,
                 libs,
-            ])
+            ]
+            
+            # Add copies column if --details was specified
+            if args.details:
+                copies_info = ""
+                if title in details_map:
+                    details = details_map[title]
+                    copies_info = details.format_copies_summary()
+                row.append(copies_info)
+            
+            table_data.append(row)
         
         headers = ["Title", "Author", "Series", "Libraries"]
+        if args.details:
+            headers.append("Copies")
+        
         print(tabulate(table_data, headers=headers, tablefmt="github"))
         
         # Show if results were truncated

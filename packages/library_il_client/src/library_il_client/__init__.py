@@ -15,6 +15,8 @@ from library_il_client.client import (
     SessionExpiredError,
 )
 from library_il_client.models import (
+    BookCopy,
+    BookDetails,
     CheckedOutBook,
     HistoryItem,
     PaginatedHistory,
@@ -28,6 +30,8 @@ __all__ = [
     "LibraryClientError",
     "LoginError",
     "SessionExpiredError",
+    "BookCopy",
+    "BookDetails",
     "CheckedOutBook",
     "HistoryItem",
     "PaginatedHistory",

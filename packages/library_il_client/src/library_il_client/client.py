@@ -12,6 +12,8 @@ import httpx
 from bs4 import BeautifulSoup
 
 from library_il_client.models import (
+    BookCopy,
+    BookDetails,
     CheckedOutBook,
     HistoryItem,
     PaginatedHistory,
@@ -867,3 +869,193 @@ class LibraryClient:
             )
         except Exception:
             return None
+    
+    async def get_book_details(self, title_id: str) -> Optional[BookDetails]:
+        """
+        Get detailed information about a book including all copies.
+        
+        Note: This method does NOT require login - book details are public.
+        
+        Args:
+            title_id: The internal ID of the book (from SearchResult.title_id)
+            
+        Returns:
+            BookDetails containing book information and list of copies,
+            or None if the book was not found.
+        """
+        details_url = urljoin(
+            self.base_url,
+            f"/index.php?option=com_agronsearch&view=details&titleId={title_id}"
+        )
+        response = await self._client.get(details_url)
+        response.raise_for_status()
+        
+        return self._parse_book_details(response.text, title_id)
+    
+    def _parse_book_details(self, html: str, title_id: str) -> Optional[BookDetails]:
+        """Parse the book details page HTML to extract book info and copies.
+        
+        The details page typically has:
+        - A copies table with columns: מספר, מיקום, מס' מיון, סימן מדף, כרך
+        - A metadata table with book information
+        """
+        soup = BeautifulSoup(html, "lxml")
+        
+        # Extract book title from page
+        title = None
+        title_element = soup.find("h1") or soup.find("h2")
+        if title_element:
+            title = title_element.get_text(strip=True)
+        
+        if not title:
+            # Try to find title in the page content
+            for text in soup.stripped_strings:
+                if len(text) > 5 and not text.startswith("http"):
+                    title = text
+                    break
+        
+        if not title:
+            return None
+        
+        # Parse copies from the copies table
+        copies = self._parse_copies_table(soup)
+        
+        # Parse metadata from the metadata table
+        metadata = self._parse_metadata_table(soup)
+        
+        return BookDetails(
+            title=title,
+            author=metadata.get("author"),
+            title_id=title_id,
+            classification=metadata.get("classification"),
+            shelf_sign=metadata.get("shelf_sign"),
+            media_type=metadata.get("media_type"),
+            series=metadata.get("series"),
+            series_number=metadata.get("series_number"),
+            library_slug=self.library_slug,
+            copies=copies,
+        )
+    
+    def _parse_copies_table(self, soup: BeautifulSoup) -> list[BookCopy]:
+        """Parse the copies table from the book details page."""
+        copies = []
+        
+        # Find the copies table (has מיקום header)
+        for table in soup.find_all("table"):
+            headers = [th.get_text(strip=True) for th in table.find_all("th")]
+            
+            # Check if this is the copies table
+            if not any("מיקום" in h for h in headers):
+                continue
+            
+            # Get column indices
+            col_indices = {
+                "barcode": self._find_header_index(headers, ["מספר"]),
+                "location": self._find_header_index(headers, ["מיקום"]),
+                "classification": self._find_header_index(headers, ["מס' מיון"]),
+                "shelf_sign": self._find_header_index(headers, ["סימן מדף"]),
+                "volume": self._find_header_index(headers, ["כרך"]),
+            }
+            
+            # Parse data rows
+            rows = table.find_all("tr")
+            for row in rows[1:]:  # Skip header
+                cells = row.find_all("td")
+                if len(cells) < 2:
+                    continue
+                
+                copy = self._parse_copy_row(cells, col_indices)
+                if copy:
+                    copies.append(copy)
+            
+            break  # Only process the first matching table
+        
+        return copies
+    
+    def _parse_copy_row(self, cells, col_indices: dict) -> Optional[BookCopy]:
+        """Parse a single row from the copies table."""
+        try:
+            cell_texts = [cell.get_text(strip=True) for cell in cells]
+            
+            def get_cell(key: str) -> Optional[str]:
+                idx = col_indices.get(key, -1)
+                if 0 <= idx < len(cell_texts):
+                    value = cell_texts[idx]
+                    return value if value else None
+                return None
+            
+            barcode = get_cell("barcode")
+            if not barcode:
+                return None
+            
+            return BookCopy(
+                barcode=barcode,
+                location=get_cell("location"),
+                classification=get_cell("classification"),
+                shelf_sign=get_cell("shelf_sign"),
+                volume=get_cell("volume"),
+                library_slug=self.library_slug,
+            )
+        except Exception:
+            return None
+    
+    def _parse_metadata_table(self, soup: BeautifulSoup) -> dict:
+        """Parse the metadata table from the book details page.
+        
+        The metadata table has a vertical layout where each row contains:
+        - Column 0: The field header (e.g., "מחבר")
+        - Column 1: The field value (e.g., "מחבר/ת:ברנע גולדברג")
+        """
+        metadata = {}
+        
+        # Field name mappings from Hebrew to our keys
+        field_mappings = {
+            "מחבר": "author",
+            "מס' מיון": "classification",
+            "סימן מדף": "shelf_sign",
+            "מדיה": "media_type",
+            "סדרה": "series",
+            "מס' בסדרה": "series_number",
+        }
+        
+        # Find the metadata table (has מחבר header in the first column)
+        for table in soup.find_all("table"):
+            # Check first few rows to see if this is the vertical metadata table
+            rows = table.find_all("tr")
+            
+            is_metadata_table = False
+            for row in rows[:3]:
+                cells = row.find_all(["td", "th"])
+                if len(cells) >= 1:
+                    first_cell_text = cells[0].get_text(strip=True)
+                    if "מחבר" in first_cell_text:
+                        is_metadata_table = True
+                        break
+            
+            if not is_metadata_table:
+                continue
+            
+            # Parse each row as a field
+            for row in rows:
+                cells = row.find_all(["td", "th"])
+                if len(cells) < 2:
+                    continue
+                
+                # First cell is the field name, second is the value
+                field_name = cells[0].get_text(strip=True)
+                field_value = cells[1].get_text(strip=True)
+                
+                # Map to our field keys
+                for hebrew_name, key in field_mappings.items():
+                    if hebrew_name in field_name:
+                        # Clean the value - some values have prefixes like "מחבר/ת:"
+                        if key == "author" and ":" in field_value:
+                            field_value = field_value.split(":", 1)[-1].strip()
+                        
+                        if field_value:
+                            metadata[key] = field_value
+                        break
+            
+            break  # Only process the first matching table
+        
+        return metadata
