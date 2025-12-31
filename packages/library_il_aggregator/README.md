@@ -11,6 +11,7 @@ Aggregates library data from multiple library.org.il Israeli public library webs
 - **Parallel Fetching**: Fetch data from all libraries simultaneously for faster results
 - **Unified Checked Out Books**: See all currently borrowed books across all accounts
 - **Combined History**: View checkout history from all accounts sorted by date
+- **File Export**: Export data to CSV or Markdown files with full UTF-8 support
 - **CLI Tool**: Command-line interface for quick access
 - **Config File Support**: Store account credentials in a JSON config file
 
@@ -46,6 +47,12 @@ library-il-aggregate --all
 
 # Use a config file for multiple accounts
 library-il-aggregate --config accounts.json --all
+
+# Export to CSV file (default format)
+library-il-aggregate --books --output books.csv
+
+# Export to Markdown file
+library-il-aggregate --all --output results.md --format markdown
 
 # Limit results
 library-il-aggregate --history --limit 20

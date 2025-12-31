@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import csv
 import json
 import os
 import sys
@@ -12,6 +13,48 @@ from datetime import date
 from tabulate import tabulate
 
 from library_il_aggregator import LibraryAccount, LibraryAggregator
+
+
+def export_to_csv(
+    sections: list[tuple[str, list[str], list[list[str]]]],
+    filepath: str,
+) -> None:
+    """
+    Export data to a CSV file with UTF-8 encoding (with BOM for Excel compatibility).
+    
+    Args:
+        sections: List of tuples (section_name, headers, data)
+        filepath: Output file path
+    """
+    with open(filepath, "w", encoding="utf-8-sig", newline="") as f:
+        writer = csv.writer(f)
+        for i, (section_name, headers, data) in enumerate(sections):
+            if i > 0:
+                # Add empty row between sections
+                writer.writerow([])
+            writer.writerow([section_name])
+            writer.writerow(headers)
+            writer.writerows(data)
+
+
+def export_to_markdown(
+    sections: list[tuple[str, list[str], list[list[str]]]],
+    filepath: str,
+) -> None:
+    """
+    Export data to a Markdown file with UTF-8 encoding.
+    
+    Args:
+        sections: List of tuples (section_name, headers, data)
+        filepath: Output file path
+    """
+    with open(filepath, "w", encoding="utf-8") as f:
+        for i, (section_name, headers, data) in enumerate(sections):
+            if i > 0:
+                f.write("\n\n")
+            f.write(f"## {section_name}\n\n")
+            f.write(tabulate(data, headers=headers, tablefmt="github"))
+            f.write("\n")
 
 
 def main() -> int:
@@ -36,6 +79,12 @@ Examples:
   
   # Use a JSON config file for multiple accounts
   library-il-aggregate --config accounts.json --all
+  
+  # Export results to CSV file (default format)
+  library-il-aggregate --libraries shemesh --books --output books.csv
+  
+  # Export results to Markdown file
+  library-il-aggregate --libraries shemesh --all --output results.md --format markdown
   
   # Config file format (accounts.json):
   # [
@@ -96,6 +145,18 @@ Examples:
         type=int,
         default=0,
         help="Limit number of results (0 = no limit)",
+    )
+    output_group.add_argument(
+        "--output",
+        "-o",
+        help="Export results to file (supports CSV and Markdown)",
+    )
+    output_group.add_argument(
+        "--format",
+        "-f",
+        choices=["csv", "markdown"],
+        default="csv",
+        help="Output file format: csv (default) or markdown",
     )
     
     args = parser.parse_args()
@@ -192,6 +253,9 @@ Examples:
         
         print()
         
+        # Collect sections for export
+        export_sections: list[tuple[str, list[str], list[list[str]]]] = []
+        
         # Show checked out books
         if args.books:
             print("## Currently Checked Out Books")
@@ -214,8 +278,9 @@ Examples:
                 print(f"**Total: {all_books.total_count} books**")
                 print()
                 
-                # Prepare table data
+                # Prepare table data (full data for export, truncated for console)
                 table_data = []
+                table_data_full = []
                 for book in books:
                     # Get the label using the account_id attached to the book
                     library_label = book.library_slug
@@ -228,15 +293,6 @@ Examples:
                                 library_label = label_map.get(account.account_id, book.library_slug)
                                 break
                     
-                    # Truncate long library labels
-                    if len(library_label) > 18:
-                        library_label = library_label[:15] + "..."
-                    
-                    # Truncate long titles
-                    title = book.title
-                    if len(title) > 58:
-                        title = title[:55] + "..."
-                    
                     due_date_str = str(book.due_date) if book.due_date else "N/A"
                     days_str = ""
                     if book.due_date:
@@ -245,10 +301,26 @@ Examples:
                     else:
                         days_str = "N/A"
                     
-                    table_data.append([library_label, title, due_date_str, days_str])
+                    # Full data for export
+                    table_data_full.append([library_label, book.title, due_date_str, days_str])
+                    
+                    # Truncated data for console display
+                    library_label_truncated = library_label
+                    if len(library_label_truncated) > 18:
+                        library_label_truncated = library_label_truncated[:15] + "..."
+                    
+                    title_truncated = book.title
+                    if len(title_truncated) > 58:
+                        title_truncated = title_truncated[:55] + "..."
+                    
+                    table_data.append([library_label_truncated, title_truncated, due_date_str, days_str])
                 
                 headers = ["Library", "Title", "Due Date", "Days Remaining"]
                 print(tabulate(table_data, headers=headers, tablefmt="github"))
+                
+                # Add to export sections
+                if args.output and table_data_full:
+                    export_sections.append(("Currently Checked Out Books", headers, table_data_full))
             
             print()
         
@@ -274,8 +346,9 @@ Examples:
                 print(f"**Total: {all_history.total_count} items**")
                 print()
                 
-                # Prepare table data
+                # Prepare table data (full data for export, truncated for console)
                 table_data = []
+                table_data_full = []
                 for item in items:
                     # Get the label using the account_id attached to the item
                     library_label = item.library_slug
@@ -288,28 +361,43 @@ Examples:
                                 library_label = label_map.get(account.account_id, item.library_slug)
                                 break
                     
-                    # Truncate long library labels
-                    if len(library_label) > 18:
-                        library_label = library_label[:15] + "..."
-                    
-                    # Truncate long titles
-                    title = item.title
-                    if len(title) > 58:
-                        title = title[:55] + "..."
-                    
-                    # Truncate long author names
-                    author = item.author or ""
-                    if len(author) > 28:
-                        author = author[:25] + "..."
-                    
                     return_date_str = str(item.return_date) if item.return_date else "N/A"
+                    author = item.author or ""
                     
-                    table_data.append([library_label, title, author, return_date_str])
+                    # Full data for export
+                    table_data_full.append([library_label, item.title, author, return_date_str])
+                    
+                    # Truncated data for console display
+                    library_label_truncated = library_label
+                    if len(library_label_truncated) > 18:
+                        library_label_truncated = library_label_truncated[:15] + "..."
+                    
+                    title_truncated = item.title
+                    if len(title_truncated) > 58:
+                        title_truncated = title_truncated[:55] + "..."
+                    
+                    author_truncated = author
+                    if len(author_truncated) > 28:
+                        author_truncated = author_truncated[:25] + "..."
+                    
+                    table_data.append([library_label_truncated, title_truncated, author_truncated, return_date_str])
                 
                 headers = ["Library", "Title", "Author", "Return Date"]
                 print(tabulate(table_data, headers=headers, tablefmt="github"))
+                
+                # Add to export sections
+                if args.output and table_data_full:
+                    export_sections.append(("Checkout History", headers, table_data_full))
             
             print()
+        
+        # Export to file if requested
+        if args.output and export_sections:
+            if args.format == "csv":
+                export_to_csv(export_sections, args.output)
+            else:
+                export_to_markdown(export_sections, args.output)
+            print(f"Exported to {args.output}")
     
     return 0
 
