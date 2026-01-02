@@ -11,6 +11,18 @@ from tabulate import tabulate
 
 from library_il_aggregator import SearchAggregator
 
+# Display truncation constants
+MAX_TITLE_LEN = 40
+MAX_AUTHOR_LEN = 25
+MAX_ID_LEN = 15
+
+
+def truncate(text: str, max_len: int) -> str:
+    """Truncate text to max_len, adding '...' suffix if needed."""
+    if len(text) > max_len:
+        return text[:max_len - 3] + "..."
+    return text
+
 
 def main() -> int:
     """Main entry point for the copies CLI."""
@@ -168,20 +180,11 @@ Format:
         # Prepare table data
         table_data = []
         for row in all_copies_data:
-            # Truncate long fields for display
-            title = row["title"]
-            if len(title) > 40:
-                title = title[:37] + "..."
-            
-            author = row["author"]
-            if len(author) > 25:
-                author = author[:22] + "..."
-            
             table_data.append([
                 row["slug"],
-                row["id"][:12] + "..." if len(row["id"]) > 15 else row["id"],
-                title,
-                author,
+                truncate(row["id"], MAX_ID_LEN),
+                truncate(row["title"], MAX_TITLE_LEN),
+                truncate(row["author"], MAX_AUTHOR_LEN),
                 row["barcode"],
                 row["location"],
                 row["shelf_sign"],
