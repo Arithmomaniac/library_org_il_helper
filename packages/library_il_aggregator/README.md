@@ -10,6 +10,7 @@ Aggregates library data from multiple library.org.il Israeli public library webs
 - **Per-Library Credentials**: Each library/account can have different credentials
 - **Parallel Fetching**: Fetch data from all libraries simultaneously for faster results
 - **Unified Checked Out Books**: See all currently borrowed books across all accounts
+- **Combined History**: View checkout history from all accounts sorted by date
 - **File Export**: Export data to CSV or Markdown files with full UTF-8 support
 - **CLI Tool**: Modern command-line interface using Typer with rich output
 - **Config File Support**: Store account credentials in a JSON config file
@@ -36,22 +37,28 @@ export TEUDAT_ZEHUT=your_teudat_zehut
 export LIBRARY_PASSWORD=your_password
 
 # Get checked out books from both libraries (same credentials)
-library-il-aggregate --libraries shemesh betshemesh
+library-il-aggregate --libraries shemesh betshemesh --books
+
+# Get checkout history
+library-il-aggregate --libraries shemesh betshemesh --history
+
+# Get everything (books + history)
+library-il-aggregate --all
 
 # Use a config file for multiple accounts
-library-il-aggregate --config accounts.json
+library-il-aggregate --config accounts.json --all
 
-# Export to CSV file (default format)
-library-il-aggregate --output books.csv
+# Export books to CSV file (default format)
+library-il-aggregate --books --output books.csv
 
-# Export to stdout in CSV format
-library-il-aggregate --format csv
+# Export history to stdout in CSV format
+library-il-aggregate --history --format csv
 
-# Export to Markdown file
-library-il-aggregate --output results.md --format markdown
+# Export everything to Markdown file
+library-il-aggregate --all --output results.md --format markdown
 
 # Limit results
-library-il-aggregate --limit 20
+library-il-aggregate --history --limit 20
 ```
 
 ### Config File Format
@@ -115,8 +122,9 @@ async def main():
         books = await aggregator.get_all_checked_out_books()
         print(f"Total books: {books.total_count}")
         
-        for book in books.sorted_by_due_date():
-            print(f"[{book.library_slug}] {book.title}")
+        history = await aggregator.get_all_checkout_history()
+        for item in history.sorted_by_return_date()[:10]:
+            print(f"[{item.library_slug}] {item.title}")
 
 asyncio.run(main())
 ```
@@ -152,6 +160,24 @@ class AggregatedBooks:
     def sorted_by_due_date(self) -> list[CheckedOutBook]: ...
 ```
 
+### AggregatedHistory
+
+```python
+@dataclass
+class AggregatedHistory:
+    items: list[HistoryItem]
+    libraries: list[str]
+    errors: dict[str, str]
+    
+    @property
+    def total_count(self) -> int: ...
+    
+    @property
+    def by_library(self) -> dict[str, list[HistoryItem]]: ...
+    
+    def sorted_by_return_date(self, descending: bool = True) -> list[HistoryItem]: ...
+```
+
 ## Example Output
 
 ```
@@ -169,6 +195,15 @@ Total: 9 books
 | shemesh:parent     | רוני ותום 4 החקירה הרביעית     | 2026-01-16 | 25             |
 | shemesh:child      | אגודת בנדיקט הסודית            | 2026-01-16 | 25             |
 | betshemesh:parent  | אני, רובוט (1)                  | 2026-01-16 | 25             |
+
+## Checkout History
+
+Total: 200 items
+
+| Library            | Title                          | Author           | Return Date |
+|--------------------|--------------------------------|------------------|-------------|
+| shemesh:parent     | כסח 17 טיול ג'יפים למכתשים     | רון-פדר, גלילה   | 2025-12-17  |
+| betshemesh:parent  | סיפורי ממלכת נרניה             | לואיס, ק"ס       | 2025-12-17  |
 ```
 
 ## License

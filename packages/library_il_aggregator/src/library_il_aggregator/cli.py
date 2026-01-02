@@ -114,6 +114,18 @@ def main(
         Optional[str],
         typer.Option("--password", "-p", help="Password. Uses LIBRARY_PASSWORD env var if not provided."),
     ] = None,
+    books: Annotated[
+        bool,
+        typer.Option("--books", "-b", help="Show currently checked out books"),
+    ] = False,
+    history: Annotated[
+        bool,
+        typer.Option("--history", "-H", help="Show checkout history"),
+    ] = False,
+    all_data: Annotated[
+        bool,
+        typer.Option("--all", "-a", help="Show both checked out books and history"),
+    ] = False,
     limit: Annotated[
         int,
         typer.Option("--limit", "-n", help="Limit number of results (0 = no limit)"),
@@ -138,33 +150,36 @@ def main(
         
         export LIBRARY_PASSWORD=your_password
         
-        library-il-aggregate --libraries shemesh betshemesh
+        library-il-aggregate --libraries shemesh betshemesh --all
         
         # Specify credentials on command line
         
-        library-il-aggregate --libraries shemesh --username YOUR_TZ --password YOUR_PASS
+        library-il-aggregate --libraries shemesh --username YOUR_TZ --password YOUR_PASS --books
         
         # Use a JSON config file for multiple accounts
         
-        library-il-aggregate --config accounts.json
+        library-il-aggregate --config accounts.json --all
         
         # Export results to CSV file
         
-        library-il-aggregate --libraries shemesh --output books.csv
+        library-il-aggregate --libraries shemesh --books --output books.csv
         
         # Export results to stdout in CSV format
         
-        library-il-aggregate --libraries shemesh --format csv
+        library-il-aggregate --libraries shemesh --books --format csv
         
         # Export results to Markdown file
         
-        library-il-aggregate --libraries shemesh --output results.md --format markdown
+        library-il-aggregate --libraries shemesh --all --output results.md --format markdown
     """
     asyncio.run(async_main(
         config=config,
         libraries=libraries,
         username=username,
         password=password,
+        books=books,
+        history=history,
+        all_data=all_data,
         limit=limit,
         output=output,
         output_format=output_format,
@@ -176,11 +191,24 @@ async def async_main(
     libraries: Optional[list[str]],
     username: Optional[str],
     password: Optional[str],
+    books: bool,
+    history: bool,
+    all_data: bool,
     limit: int,
     output: Optional[str],
     output_format: Optional[OutputFormat],
 ) -> None:
     """Async main function for the CLI."""
+    
+    # Default to showing all if nothing specified
+    show_books = books
+    show_history = history
+    if not books and not history and not all_data:
+        show_books = True
+        show_history = True
+    if all_data:
+        show_books = True
+        show_history = True
     
     # Build accounts list
     accounts: list[LibraryAccount] = []
@@ -253,6 +281,11 @@ async def async_main(
     is_exporting = output is not None or output_format is not None
     effective_format = output_format or OutputFormat.csv
     
+    # Validate CSV export doesn't have multiple sections
+    if is_exporting and effective_format == OutputFormat.csv and show_books and show_history:
+        err_console.print("Error: CSV export does not support multiple sections. Use --books or --history, not both.")
+        raise typer.Exit(code=1)
+    
     async with LibraryAggregator(accounts) as aggregator:
         # Login to all accounts
         if not is_exporting:
@@ -273,26 +306,25 @@ async def async_main(
         if not is_exporting:
             console.print()
         
-        # Fetch checked out books
-        all_books = await aggregator.get_all_checked_out_books()
+        # Collect sections for export
+        export_sections: list[tuple[str, list[str], list[list[str]]]] = []
         
-        if all_books.errors and not is_exporting:
-            for account_id, error in all_books.errors.items():
-                label = label_map.get(account_id, account_id)
-                err_console.print(f"  Warning: {label}: {error}")
-        
-        books = all_books.sorted_by_due_date()
-        if limit > 0:
-            books = books[:limit]
-        
-        if is_exporting:
-            # Export mode - prepare data and output
-            if not books:
-                err_console.print("Warning: No data to export.")
-                raise typer.Exit(code=0)
+        # Fetch and display checked out books
+        if show_books:
+            all_books = await aggregator.get_all_checked_out_books()
             
-            table_data: list[list[str]] = []
-            for book in books:
+            if all_books.errors and not is_exporting:
+                for account_id, error in all_books.errors.items():
+                    label = label_map.get(account_id, account_id)
+                    err_console.print(f"  Warning: {label}: {error}")
+            
+            books_list = all_books.sorted_by_due_date()
+            if limit > 0:
+                books_list = books_list[:limit]
+            
+            # Prepare table data
+            table_data_full: list[list[str]] = []
+            for book in books_list:
                 library_label = book.library_slug
                 if hasattr(book, 'account_id'):
                     library_label = label_map.get(book.account_id, book.library_slug)
@@ -310,67 +342,164 @@ async def async_main(
                 else:
                     days_str = "N/A"
                 
-                table_data.append([library_label, book.title, due_date_str, days_str])
+                table_data_full.append([library_label, book.title, due_date_str, days_str])
             
             headers = ["Library", "Title", "Due Date", "Days Remaining"]
             
+            if is_exporting:
+                if table_data_full:
+                    export_sections.append(("Currently Checked Out Books", headers, table_data_full))
+            else:
+                # Display mode - show to console with rich formatting
+                console.print("[bold]## Currently Checked Out Books[/bold]")
+                console.print()
+                
+                if not books_list:
+                    console.print("No books currently checked out.")
+                else:
+                    console.print(f"[bold]Total: {all_books.total_count} books[/bold]")
+                    console.print()
+                    
+                    table = Table(show_header=True, header_style="bold")
+                    table.add_column("Library", max_width=18)
+                    table.add_column("Title", max_width=58)
+                    table.add_column("Due Date")
+                    table.add_column("Days Remaining")
+                    
+                    for book in books_list:
+                        library_label = book.library_slug
+                        if hasattr(book, 'account_id'):
+                            library_label = label_map.get(book.account_id, book.library_slug)
+                        else:
+                            for account in accounts:
+                                if account.slug == book.library_slug:
+                                    library_label = label_map.get(account.account_id, book.library_slug)
+                                    break
+                        
+                        due_date_str = str(book.due_date) if book.due_date else "N/A"
+                        days_str = ""
+                        if book.due_date:
+                            days_remaining = (book.due_date - date.today()).days
+                            days_str = str(days_remaining)
+                        else:
+                            days_str = "N/A"
+                        
+                        # Truncate for display
+                        if len(library_label) > 18:
+                            library_label = library_label[:15] + "..."
+                        title = book.title
+                        if len(title) > 58:
+                            title = title[:55] + "..."
+                        
+                        table.add_row(library_label, title, due_date_str, days_str)
+                    
+                    console.print(table)
+                
+                console.print()
+        
+        # Fetch and display checkout history
+        if show_history:
+            all_history = await aggregator.get_all_checkout_history()
+            
+            if all_history.errors and not is_exporting:
+                for account_id, error in all_history.errors.items():
+                    label = label_map.get(account_id, account_id)
+                    err_console.print(f"  Warning: {label}: {error}")
+            
+            history_items = all_history.sorted_by_return_date()
+            if limit > 0:
+                history_items = history_items[:limit]
+            
+            # Prepare table data
+            table_data_full = []
+            for item in history_items:
+                library_label = item.library_slug
+                if hasattr(item, 'account_id'):
+                    library_label = label_map.get(item.account_id, item.library_slug)
+                else:
+                    for account in accounts:
+                        if account.slug == item.library_slug:
+                            library_label = label_map.get(account.account_id, item.library_slug)
+                            break
+                
+                return_date_str = str(item.return_date) if item.return_date else "N/A"
+                author = item.author or ""
+                
+                table_data_full.append([library_label, item.title, author, return_date_str])
+            
+            headers = ["Library", "Title", "Author", "Return Date"]
+            
+            if is_exporting:
+                if table_data_full:
+                    export_sections.append(("Checkout History", headers, table_data_full))
+            else:
+                # Display mode - show to console with rich formatting
+                console.print("[bold]## Checkout History[/bold]")
+                console.print()
+                
+                if not history_items:
+                    console.print("No checkout history found.")
+                else:
+                    console.print(f"[bold]Total: {all_history.total_count} items[/bold]")
+                    console.print()
+                    
+                    table = Table(show_header=True, header_style="bold")
+                    table.add_column("Library", max_width=18)
+                    table.add_column("Title", max_width=58)
+                    table.add_column("Author", max_width=28)
+                    table.add_column("Return Date")
+                    
+                    for item in history_items:
+                        library_label = item.library_slug
+                        if hasattr(item, 'account_id'):
+                            library_label = label_map.get(item.account_id, item.library_slug)
+                        else:
+                            for account in accounts:
+                                if account.slug == item.library_slug:
+                                    library_label = label_map.get(account.account_id, item.library_slug)
+                                    break
+                        
+                        return_date_str = str(item.return_date) if item.return_date else "N/A"
+                        author = item.author or ""
+                        
+                        # Truncate for display
+                        if len(library_label) > 18:
+                            library_label = library_label[:15] + "..."
+                        title = item.title
+                        if len(title) > 58:
+                            title = title[:55] + "..."
+                        if len(author) > 28:
+                            author = author[:25] + "..."
+                        
+                        table.add_row(library_label, title, author, return_date_str)
+                    
+                    console.print(table)
+                
+                console.print()
+        
+        # Export to file or stdout if requested
+        if is_exporting:
+            if not export_sections:
+                err_console.print("Warning: No data to export.")
+                raise typer.Exit(code=0)
+            
             try:
                 if effective_format == OutputFormat.csv:
-                    content = format_csv(headers, table_data)
+                    # CSV only supports single section (already validated above)
+                    section_name, headers, data = export_sections[0]
+                    content = format_csv(headers, data)
                 else:
-                    content = format_markdown(headers, table_data, "Currently Checked Out Books")
+                    # Markdown supports multiple sections
+                    content = ""
+                    for i, (section_name, headers, data) in enumerate(export_sections):
+                        if i > 0:
+                            content += "\n\n"
+                        content += format_markdown(headers, data, section_name)
                 
                 write_output(content, output, effective_format)
             except OSError as e:
                 err_console.print(f"Error: Failed to write output: {e}")
                 raise typer.Exit(code=1)
-        else:
-            # Display mode - show to console with rich formatting
-            console.print("[bold]## Currently Checked Out Books[/bold]")
-            console.print()
-            
-            if not books:
-                console.print("No books currently checked out.")
-            else:
-                console.print(f"[bold]Total: {all_books.total_count} books[/bold]")
-                console.print()
-                
-                table = Table(show_header=True, header_style="bold")
-                table.add_column("Library", max_width=18)
-                table.add_column("Title", max_width=58)
-                table.add_column("Due Date")
-                table.add_column("Days Remaining")
-                
-                for book in books:
-                    library_label = book.library_slug
-                    if hasattr(book, 'account_id'):
-                        library_label = label_map.get(book.account_id, book.library_slug)
-                    else:
-                        for account in accounts:
-                            if account.slug == book.library_slug:
-                                library_label = label_map.get(account.account_id, book.library_slug)
-                                break
-                    
-                    due_date_str = str(book.due_date) if book.due_date else "N/A"
-                    days_str = ""
-                    if book.due_date:
-                        days_remaining = (book.due_date - date.today()).days
-                        days_str = str(days_remaining)
-                    else:
-                        days_str = "N/A"
-                    
-                    # Truncate for display
-                    if len(library_label) > 18:
-                        library_label = library_label[:15] + "..."
-                    title = book.title
-                    if len(title) > 58:
-                        title = title[:55] + "..."
-                    
-                    table.add_row(library_label, title, due_date_str, days_str)
-                
-                console.print(table)
-            
-            console.print()
 
 
 # Keep the format functions exported for tests
