@@ -200,6 +200,9 @@ Authentication:
                 # Get the book details for this specific library
                 for lib_details in details.library_details:
                     if lib_details.library_slug == slug:
+                        # Track if we've added hold count to first unavailable copy
+                        first_unavailable_with_holds = True
+                        
                         # Add each copy as a row
                         for copy in lib_details.copies:
                             # Format return date
@@ -211,14 +214,25 @@ Authentication:
                             if copy.status:
                                 has_authenticated_data = True
                             
+                            # For the first not available copy, append hold count
+                            status_str = copy.status or ""
+                            is_available = status_str and "זמין" in status_str
+                            if (first_unavailable_with_holds and 
+                                not is_available and 
+                                status_str and 
+                                lib_details.hold_count is not None):
+                                status_str = f"{status_str} ({lib_details.hold_count})"
+                                first_unavailable_with_holds = False
+                            
                             all_copies_data.append({
                                 "slug": slug,
                                 "id": title_id,
                                 "title": lib_details.title,
                                 "author": lib_details.author or "",
                                 "barcode": copy.barcode or "",
-                                "status": copy.status or "",
+                                "status": status_str,
                                 "location": copy.location or "",
+                                "classification": copy.classification or "",
                                 "shelf_sign": copy.shelf_sign or "",
                                 "return_date": return_date_str,
                                 "hold_count": lib_details.hold_count,
@@ -234,6 +248,7 @@ Authentication:
                                 "barcode": "(no copies)",
                                 "status": "",
                                 "location": "",
+                                "classification": "",
                                 "shelf_sign": "",
                                 "return_date": "",
                                 "hold_count": lib_details.hold_count,
@@ -273,12 +288,13 @@ Authentication:
                 row["barcode"],
                 row["status"],
                 row["location"],
+                row["classification"],
                 row["shelf_sign"],
                 row["return_date"],
             ]
             table_data.append(row_data)
         
-        headers = ["Library", "ID", "Title", "Author", "Barcode", "Status", "Location", "Shelf", "Return Date"]
+        headers = ["Library", "ID", "Title", "Author", "Barcode", "Status", "Location", "Classification", "Shelf", "Return Date"]
         print(tabulate(table_data, headers=headers, tablefmt="github"))
         
         # Show note if no authenticated data was found
