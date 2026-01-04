@@ -11,8 +11,9 @@ Aggregates library data from multiple library.org.il Israeli public library webs
 - **Parallel Fetching**: Fetch data from all libraries simultaneously for faster results
 - **Unified Checked Out Books**: See all currently borrowed books across all accounts
 - **Combined History**: View checkout history from all accounts sorted by date
-- **File Export**: Export data to CSV or Markdown files with full UTF-8 support
-- **CLI Tool**: Modern command-line interface using Typer with rich output
+- **Book Copies/Details**: View detailed book information including copies, locations, status, and availability
+- **File Export**: Export data to CSV or Markdown files with full UTF-8 support (for all CLIs)
+- **CLI Tools**: Modern command-line interfaces using Typer with rich output
 - **Config File Support**: Store account credentials in a JSON config file
 
 ## Installation
@@ -59,6 +60,30 @@ library-il-aggregate --all --output results.md --format markdown
 
 # Limit results
 library-il-aggregate --history --limit 20
+```
+
+### Book Copies CLI
+
+View detailed information about book copies including location, status, and availability:
+
+```bash
+# View copies for a single book (public data only)
+library-il-copies shemesh:ABC123
+
+# View copies with authentication (shows status, return dates)
+library-il-copies shemesh:ABC123 --username YOUR_TZ --password YOUR_PASS
+
+# View copies from multiple books
+library-il-copies shemesh:ABC123 betshemesh:DEF456
+
+# Export copies to CSV file
+library-il-copies shemesh:ABC123 --output copies.csv
+
+# Export copies to stdout in CSV format
+library-il-copies shemesh:ABC123 --format csv
+
+# Export copies to Markdown file
+library-il-copies shemesh:ABC123 --output copies.md --format markdown
 ```
 
 ### Config File Format

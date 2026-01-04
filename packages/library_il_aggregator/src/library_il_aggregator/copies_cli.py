@@ -2,16 +2,30 @@
 
 from __future__ import annotations
 
-import argparse
 import asyncio
 import json
 import os
-import sys
-from typing import Optional
+from typing import Annotated, Optional
 
-from tabulate import tabulate
+import typer
+from rich.console import Console
+from rich.table import Table
 
 from library_il_aggregator import SearchAggregator
+from library_il_aggregator.export_utils import (
+    OutputFormat,
+    format_csv,
+    format_markdown,
+    write_output,
+)
+
+app = typer.Typer(
+    help="View book copies from multiple library.org.il websites",
+    add_completion=False,
+)
+
+console = Console()
+err_console = Console(stderr=True)
 
 # Display truncation constants
 MAX_TITLE_LEN = 40
@@ -26,9 +40,9 @@ def truncate(text: str, max_len: int) -> str:
     return text
 
 
-def main() -> int:
+def main() -> None:
     """Main entry point for the copies CLI."""
-    return asyncio.run(async_main())
+    app()
 
 
 def parse_slug_id(value: str) -> tuple[str, str]:
@@ -56,87 +70,117 @@ def parse_slug_id(value: str) -> tuple[str, str]:
     )
 
 
-async def async_main() -> int:
+@app.command()
+def copies(
+    books_args: Annotated[
+        list[str],
+        typer.Argument(help="One or more slug:id pairs (e.g., shemesh:ABC123 betshemesh:DEF456)"),
+    ],
+    config: Annotated[
+        Optional[str],
+        typer.Option("--config", "-c", help="Path to JSON config file with account credentials"),
+    ] = None,
+    username: Annotated[
+        Optional[str],
+        typer.Option("--username", "-u", help="Username (Teudat Zehut). Uses TEUDAT_ZEHUT env var if not provided."),
+    ] = None,
+    password: Annotated[
+        Optional[str],
+        typer.Option("--password", "-p", help="Password. Uses LIBRARY_PASSWORD env var if not provided."),
+    ] = None,
+    output: Annotated[
+        Optional[str],
+        typer.Option("--output", "-o", help="Export results to file. If not specified with --format, outputs to stdout."),
+    ] = None,
+    output_format: Annotated[
+        Optional[OutputFormat],
+        typer.Option("--format", "-f", help="Output format: csv (default) or markdown. When specified without --output, outputs to stdout."),
+    ] = None,
+) -> None:
+    """
+    View book copies from multiple library.org.il websites.
+    
+    Examples:
+    
+        # View copies for a single book (public data only)
+        
+        library-il-copies shemesh:ABC123
+        
+        # View copies with authentication (shows status, return dates)
+        
+        library-il-copies shemesh:ABC123 --username YOUR_TZ --password YOUR_PASS
+        
+        # Use environment variables for credentials
+        
+        export TEUDAT_ZEHUT=your_tz
+        
+        export LIBRARY_PASSWORD=your_password
+        
+        library-il-copies shemesh:ABC123 betshemesh:DEF456
+        
+        # Export to CSV file
+        
+        library-il-copies shemesh:ABC123 --output copies.csv
+        
+        # Export to stdout in CSV format
+        
+        library-il-copies shemesh:ABC123 --format csv
+        
+        # Export to Markdown file
+        
+        library-il-copies shemesh:ABC123 --output copies.md --format markdown
+    
+    Format:
+    
+        Each positional argument should be a slug:id pair where:
+        
+        - slug: Library identifier (e.g., "shemesh", "betshemesh")
+        
+        - id: Title ID from the library catalog (visible in URLs)
+    
+    Authentication:
+    
+        When authenticated, additional columns are available:
+        
+        - Status (e.g., "מושאל" = checked out, "זמין" = available)
+        
+        - Return Date (when a copy is checked out)
+        
+        - Hold count for the title
+    """
+    asyncio.run(async_copies(
+        books_args=books_args,
+        config=config,
+        username=username,
+        password=password,
+        output=output,
+        output_format=output_format,
+    ))
+
+
+async def async_copies(
+    books_args: list[str],
+    config: Optional[str],
+    username: Optional[str],
+    password: Optional[str],
+    output: Optional[str],
+    output_format: Optional[OutputFormat],
+) -> None:
     """Async main function for the copies CLI."""
-    parser = argparse.ArgumentParser(
-        description="View book copies from multiple library.org.il websites",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  # View copies for a single book (public data only)
-  library-il-copies shemesh:ABC123
-  
-  # View copies with authentication (shows status, return dates)
-  library-il-copies shemesh:ABC123 --username YOUR_TZ --password YOUR_PASS
-  
-  # Use environment variables for credentials
-  export TEUDAT_ZEHUT=your_tz
-  export LIBRARY_PASSWORD=your_password
-  library-il-copies shemesh:ABC123 betshemesh:DEF456
-  
-  # Use a JSON config file for credentials
-  library-il-copies shemesh:ABC123 --config accounts.json
-  
-  # Config file format (accounts.json):
-  # [
-  #   {"slug": "shemesh", "username": "tz", "password": "pass"},
-  #   {"slug": "betshemesh", "username": "tz", "password": "pass"}
-  # ]
-
-Format:
-  Each positional argument should be a slug:id pair where:
-  - slug: Library identifier (e.g., "shemesh", "betshemesh")
-  - id: Title ID from the library catalog (visible in URLs)
-
-Authentication:
-  When authenticated, additional columns are available:
-  - Status (e.g., "מושאל" = checked out, "זמין" = available)
-  - Return Date (when a copy is checked out)
-  - Hold count for the title
-""",
-    )
-    
-    # Positional arguments for slug-id pairs
-    parser.add_argument(
-        "books",
-        nargs="+",
-        metavar="SLUG:ID",
-        help="One or more slug:id pairs (e.g., shemesh:ABC123 betshemesh:DEF456)",
-    )
-    
-    # Authentication options
-    auth_group = parser.add_argument_group("Authentication")
-    auth_group.add_argument(
-        "--config",
-        "-c",
-        help="Path to JSON config file with account credentials",
-    )
-    auth_group.add_argument(
-        "--username",
-        "-u",
-        help="Username (Teudat Zehut). Uses TEUDAT_ZEHUT env var if not provided.",
-    )
-    auth_group.add_argument(
-        "--password",
-        "-p",
-        help="Password. Uses LIBRARY_PASSWORD env var if not provided.",
-    )
-    
-    args = parser.parse_args()
     
     # Parse the slug-id pairs
     slug_id_pairs: list[tuple[str, str]] = []
-    for arg in args.books:
+    for arg in books_args:
         try:
             pair = parse_slug_id(arg)
             slug_id_pairs.append(pair)
         except ValueError as e:
-            print(f"Error: {e}", file=sys.stderr)
-            return 1
+            err_console.print(f"Error: {e}")
+            raise typer.Exit(code=1)
     
     if not slug_id_pairs:
-        print("Error: At least one slug:id pair is required", file=sys.stderr)
-        return 1
+        err_console.print("Error: At least one slug:id pair is required")
+        raise typer.Exit(code=1)
     
     # Get unique library slugs for the aggregator
     unique_slugs = list(dict.fromkeys(slug for slug, _ in slug_id_pairs))
@@ -144,10 +188,10 @@ Authentication:
     # Build credentials map from arguments
     credentials: dict[str, tuple[str, str]] = {}
     
-    if args.config:
+    if config:
         # Load from config file
         try:
-            with open(args.config) as f:
+            with open(config) as f:
                 config_data = json.load(f)
             
             for item in config_data:
@@ -155,33 +199,40 @@ Authentication:
                 if slug in unique_slugs:
                     credentials[slug] = (item["username"], item["password"])
         except FileNotFoundError:
-            print(f"Error: Config file not found: {args.config}", file=sys.stderr)
-            return 1
+            err_console.print(f"Error: Config file not found: {config}")
+            raise typer.Exit(code=1)
         except (json.JSONDecodeError, KeyError) as e:
-            print(f"Error: Invalid config file: {e}", file=sys.stderr)
-            return 1
+            err_console.print(f"Error: Invalid config file: {e}")
+            raise typer.Exit(code=1)
     else:
         # Use --username/--password or environment variables
-        username = args.username or os.environ.get("TEUDAT_ZEHUT", "")
-        password = args.password or os.environ.get("LIBRARY_PASSWORD", "")
+        resolved_username = username or os.environ.get("TEUDAT_ZEHUT", "")
+        resolved_password = password or os.environ.get("LIBRARY_PASSWORD", "")
         
-        if username and password:
+        if resolved_username and resolved_password:
             # Apply same credentials to all unique slugs
             for slug in unique_slugs:
-                credentials[slug] = (username, password)
+                credentials[slug] = (resolved_username, resolved_password)
+    
+    # Determine if we're exporting or displaying
+    is_exporting = output is not None or output_format is not None
+    effective_format = output_format or OutputFormat.csv
     
     async with SearchAggregator(unique_slugs) as aggregator:
         # Login if credentials were provided (in parallel)
         if credentials:
-            print(f"Logging in to {len(credentials)} library(s)...")
+            if not is_exporting:
+                console.print(f"Logging in to {len(credentials)} library(s)...")
             login_results = await aggregator.login_all(credentials)
-            for slug, success in login_results.items():
-                status = "✓" if success else "✗"
-                print(f"  {status} {slug}")
-            print()
+            if not is_exporting:
+                for slug, success in login_results.items():
+                    status = "✓" if success else "✗"
+                    console.print(f"  {status} {slug}")
+                console.print()
         
-        print(f"Fetching copies from {len(unique_slugs)} library(s): {', '.join(unique_slugs)}")
-        print()
+        if not is_exporting:
+            console.print(f"Fetching copies from {len(unique_slugs)} library(s): {', '.join(unique_slugs)}")
+            console.print()
         
         # Fetch details for all books (preserving order from input)
         all_copies_data: list[dict] = []
@@ -261,30 +312,29 @@ Authentication:
             except Exception as e:
                 errors.append(f"{slug}:{title_id} - {str(e)}")
         
-        # Show errors if any
-        if errors:
-            print("**Errors:**")
+        # Show errors if any (only in display mode)
+        if errors and not is_exporting:
+            console.print("[bold red]Errors:[/bold red]")
             for error in errors:
-                print(f"  ✗ {error}")
-            print()
+                console.print(f"  ✗ {error}")
+            console.print()
         
         if not all_copies_data:
-            print("No copies found.")
-            return 0
+            if is_exporting:
+                err_console.print("Warning: No copies found.")
+            else:
+                console.print("No copies found.")
+            raise typer.Exit(code=0)
         
-        print("## Book Copies")
-        print()
-        print(f"**Total: {len(all_copies_data)} copies**")
-        print()
-        
-        # Prepare table data
-        table_data = []
+        # Prepare table data (full data for export)
+        headers = ["Library", "ID", "Title", "Author", "Barcode", "Status", "Location", "Classification", "Shelf", "Return Date"]
+        table_data_full: list[list[str]] = []
         for row in all_copies_data:
             row_data = [
                 row["slug"],
-                truncate(row["id"], MAX_ID_LEN),
-                truncate(row["title"], MAX_TITLE_LEN),
-                truncate(row["author"], MAX_AUTHOR_LEN),
+                row["id"],
+                row["title"],
+                row["author"],
                 row["barcode"],
                 row["status"],
                 row["location"],
@@ -292,19 +342,62 @@ Authentication:
                 row["shelf_sign"],
                 row["return_date"],
             ]
-            table_data.append(row_data)
+            table_data_full.append(row_data)
         
-        headers = ["Library", "ID", "Title", "Author", "Barcode", "Status", "Location", "Classification", "Shelf", "Return Date"]
-        print(tabulate(table_data, headers=headers, tablefmt="github"))
-        
-        # Show note if no authenticated data was found
-        if not has_authenticated_data:
-            print()
-            print("*Note: Status and Return Date columns require authentication.*")
-            print("*Use --username and --password, or set TEUDAT_ZEHUT and LIBRARY_PASSWORD.*")
-    
-    return 0
+        if is_exporting:
+            # Export mode
+            try:
+                if effective_format == OutputFormat.csv:
+                    content = format_csv(headers, table_data_full)
+                else:
+                    content = format_markdown(headers, table_data_full, "Book Copies")
+                
+                write_output(content, output, effective_format)
+            except OSError as e:
+                err_console.print(f"Error: Failed to write output: {e}")
+                raise typer.Exit(code=1)
+        else:
+            # Display mode - show to console with rich formatting
+            console.print("[bold]## Book Copies[/bold]")
+            console.print()
+            console.print(f"[bold]Total: {len(all_copies_data)} copies[/bold]")
+            console.print()
+            
+            # Use rich table for display with truncation
+            table = Table(show_header=True, header_style="bold")
+            table.add_column("Library")
+            table.add_column("ID", max_width=MAX_ID_LEN)
+            table.add_column("Title", max_width=MAX_TITLE_LEN)
+            table.add_column("Author", max_width=MAX_AUTHOR_LEN)
+            table.add_column("Barcode")
+            table.add_column("Status")
+            table.add_column("Location")
+            table.add_column("Classification")
+            table.add_column("Shelf")
+            table.add_column("Return Date")
+            
+            for row in all_copies_data:
+                table.add_row(
+                    row["slug"],
+                    truncate(row["id"], MAX_ID_LEN),
+                    truncate(row["title"], MAX_TITLE_LEN),
+                    truncate(row["author"], MAX_AUTHOR_LEN),
+                    row["barcode"],
+                    row["status"],
+                    row["location"],
+                    row["classification"],
+                    row["shelf_sign"],
+                    row["return_date"],
+                )
+            
+            console.print(table)
+            
+            # Show note if no authenticated data was found
+            if not has_authenticated_data:
+                console.print()
+                console.print("[dim]Note: Status and Return Date columns require authentication.[/dim]")
+                console.print("[dim]Use --username and --password, or set TEUDAT_ZEHUT and LIBRARY_PASSWORD.[/dim]")
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    app()

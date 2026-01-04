@@ -9,7 +9,8 @@ import tempfile
 
 import pytest
 
-from library_il_aggregator.cli import export_to_csv, export_to_markdown, format_csv, format_markdown
+from library_il_aggregator.cli import export_to_csv, export_to_markdown
+from library_il_aggregator.export_utils import format_csv, format_markdown
 
 
 class TestExportFunctions:
