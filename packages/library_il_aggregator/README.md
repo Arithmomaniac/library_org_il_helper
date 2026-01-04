@@ -11,7 +11,9 @@ Aggregates library data from multiple library.org.il Israeli public library webs
 - **Parallel Fetching**: Fetch data from all libraries simultaneously for faster results
 - **Unified Checked Out Books**: See all currently borrowed books across all accounts
 - **Combined History**: View checkout history from all accounts sorted by date
-- **CLI Tool**: Command-line interface for quick access
+- **Book Copies/Details**: View detailed book information including copies, locations, status, and availability
+- **File Export**: Export data to CSV or Markdown files with full UTF-8 support (for all CLIs)
+- **CLI Tools**: Modern command-line interfaces using Typer with rich output
 - **Config File Support**: Store account credentials in a JSON config file
 
 ## Installation
@@ -41,14 +43,47 @@ library-il-aggregate --libraries shemesh betshemesh --books
 # Get checkout history
 library-il-aggregate --libraries shemesh betshemesh --history
 
-# Get everything
+# Get everything (books + history)
 library-il-aggregate --all
 
 # Use a config file for multiple accounts
 library-il-aggregate --config accounts.json --all
 
+# Export books to CSV file (default format)
+library-il-aggregate --books --output books.csv
+
+# Export history to stdout in CSV format
+library-il-aggregate --history --format csv
+
+# Export everything to Markdown file
+library-il-aggregate --all --output results.md --format markdown
+
 # Limit results
 library-il-aggregate --history --limit 20
+```
+
+### Book Copies CLI
+
+View detailed information about book copies including location, status, and availability:
+
+```bash
+# View copies for a single book (public data only)
+library-il-copies shemesh:ABC123
+
+# View copies with authentication (shows status, return dates)
+library-il-copies shemesh:ABC123 --username YOUR_TZ --password YOUR_PASS
+
+# View copies from multiple books
+library-il-copies shemesh:ABC123 betshemesh:DEF456
+
+# Export copies to CSV file
+library-il-copies shemesh:ABC123 --output copies.csv
+
+# Export copies to stdout in CSV format
+library-il-copies shemesh:ABC123 --format csv
+
+# Export copies to Markdown file
+library-il-copies shemesh:ABC123 --output copies.md --format markdown
 ```
 
 ### Config File Format
@@ -176,22 +211,24 @@ Logging in to 3 account(s)...
   ✓ shemesh:child
   ✓ betshemesh:parent_tz
 
-============================================================
-CURRENTLY CHECKED OUT BOOKS
-============================================================
-  Total: 9 books
+## Currently Checked Out Books
 
-  [shemesh] רוני ותום 4 החקירה הרביעית (due: 2026-01-16, 25 days)
-  [shemesh] אגודת בנדיקט הסודית (due: 2026-01-16, 25 days)
-  [betshemesh] אני, רובוט (1) (due: 2026-01-16, 25 days)
+Total: 9 books
 
-============================================================
-CHECKOUT HISTORY
-============================================================
-  Total: 200 items
+| Library            | Title                          | Due Date   | Days Remaining |
+|--------------------|--------------------------------|------------|----------------|
+| shemesh:parent     | רוני ותום 4 החקירה הרביעית     | 2026-01-16 | 25             |
+| shemesh:child      | אגודת בנדיקט הסודית            | 2026-01-16 | 25             |
+| betshemesh:parent  | אני, רובוט (1)                  | 2026-01-16 | 25             |
 
-  [shemesh] כסח 17 טיול ג'יפים למכתשים by רון-פדר, גלילה (returned: 2025-12-17)
-  [betshemesh] סיפורי ממלכת נרניה by לואיס, ק"ס (returned: 2025-12-17)
+## Checkout History
+
+Total: 200 items
+
+| Library            | Title                          | Author           | Return Date |
+|--------------------|--------------------------------|------------------|-------------|
+| shemesh:parent     | כסח 17 טיול ג'יפים למכתשים     | רון-פדר, גלילה   | 2025-12-17  |
+| betshemesh:parent  | סיפורי ממלכת נרניה             | לואיס, ק"ס       | 2025-12-17  |
 ```
 
 ## License
