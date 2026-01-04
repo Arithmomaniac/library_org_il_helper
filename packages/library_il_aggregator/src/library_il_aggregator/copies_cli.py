@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
+import os
 import sys
 from typing import Optional
 
@@ -61,25 +63,36 @@ async def async_main() -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # View copies for a single book
+  # View copies for a single book (public data only)
   library-il-copies shemesh:ABC123
   
-  # View copies for multiple books across libraries
+  # View copies with authentication (shows status, return dates)
+  library-il-copies shemesh:ABC123 --username YOUR_TZ --password YOUR_PASS
+  
+  # Use environment variables for credentials
+  export TEUDAT_ZEHUT=your_tz
+  export LIBRARY_PASSWORD=your_password
   library-il-copies shemesh:ABC123 betshemesh:DEF456
   
-  # Use with search to get IDs first
-  library-il-search --title "כראמל" --show-ids
-  # Then copy the slug:id pairs and use them:
-  library-il-copies shemesh:5057435A5F1154 betshemesh:555E43565E
+  # Use a JSON config file for credentials
+  library-il-copies shemesh:ABC123 --config accounts.json
+  
+  # Config file format (accounts.json):
+  # [
+  #   {"slug": "shemesh", "username": "tz", "password": "pass"},
+  #   {"slug": "betshemesh", "username": "tz", "password": "pass"}
+  # ]
 
 Format:
-  Each argument should be a slug:id pair where:
+  Each positional argument should be a slug:id pair where:
   - slug: Library identifier (e.g., "shemesh", "betshemesh")
   - id: Title ID from the library catalog (visible in URLs)
 
-Note:
-  Some columns (Status, Return Date) are only available when authenticated.
-  The library-il-copies command uses public data by default.
+Authentication:
+  When authenticated, additional columns are available:
+  - Status (e.g., "מושאל" = checked out, "זמין" = available)
+  - Return Date (when a copy is checked out)
+  - Hold count for the title
 """,
     )
     
@@ -89,6 +102,24 @@ Note:
         nargs="+",
         metavar="SLUG:ID",
         help="One or more slug:id pairs (e.g., shemesh:ABC123 betshemesh:DEF456)",
+    )
+    
+    # Authentication options
+    auth_group = parser.add_argument_group("Authentication")
+    auth_group.add_argument(
+        "--config",
+        "-c",
+        help="Path to JSON config file with account credentials",
+    )
+    auth_group.add_argument(
+        "--username",
+        "-u",
+        help="Username (Teudat Zehut). Uses TEUDAT_ZEHUT env var if not provided.",
+    )
+    auth_group.add_argument(
+        "--password",
+        "-p",
+        help="Password. Uses LIBRARY_PASSWORD env var if not provided.",
     )
     
     args = parser.parse_args()
@@ -110,7 +141,45 @@ Note:
     # Get unique library slugs for the aggregator
     unique_slugs = list(dict.fromkeys(slug for slug, _ in slug_id_pairs))
     
+    # Build credentials map from arguments
+    credentials: dict[str, tuple[str, str]] = {}
+    
+    if args.config:
+        # Load from config file
+        try:
+            with open(args.config) as f:
+                config_data = json.load(f)
+            
+            for item in config_data:
+                slug = item["slug"]
+                if slug in unique_slugs:
+                    credentials[slug] = (item["username"], item["password"])
+        except FileNotFoundError:
+            print(f"Error: Config file not found: {args.config}", file=sys.stderr)
+            return 1
+        except (json.JSONDecodeError, KeyError) as e:
+            print(f"Error: Invalid config file: {e}", file=sys.stderr)
+            return 1
+    else:
+        # Use --username/--password or environment variables
+        username = args.username or os.environ.get("TEUDAT_ZEHUT", "")
+        password = args.password or os.environ.get("LIBRARY_PASSWORD", "")
+        
+        if username and password:
+            # Apply same credentials to all unique slugs
+            for slug in unique_slugs:
+                credentials[slug] = (username, password)
+    
     async with SearchAggregator(unique_slugs) as aggregator:
+        # Login if credentials were provided
+        if credentials:
+            print(f"Logging in to {len(credentials)} library(s)...")
+            for slug, (username, password) in credentials.items():
+                success = await aggregator.login(slug, username, password)
+                status = "✓" if success else "✗"
+                print(f"  {status} {slug}")
+            print()
+        
         print(f"Fetching copies from {len(unique_slugs)} library(s): {', '.join(unique_slugs)}")
         print()
         
@@ -216,6 +285,7 @@ Note:
         if not has_authenticated_data:
             print()
             print("*Note: Status and Return Date columns require authentication.*")
+            print("*Use --username and --password, or set TEUDAT_ZEHUT and LIBRARY_PASSWORD.*")
     
     return 0
 
