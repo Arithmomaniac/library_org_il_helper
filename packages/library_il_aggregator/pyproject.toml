@@ -24,6 +24,7 @@ dev = [
 [project.scripts]
 library-il-aggregate = "library_il_aggregator.cli:main"
 library-il-search = "library_il_aggregator.search_cli:main"
+library-il-copies = "library_il_aggregator.copies_cli:main"
 
 [tool.uv.sources]
 library-il-client = { workspace = true }

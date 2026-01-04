@@ -9,6 +9,7 @@ from library_il_aggregator.aggregator import LibraryAccount, LibraryAggregator
 from library_il_aggregator.models import (
     AggregatedBooks,
     AggregatedHistory,
+    CombinedBookDetails,
     CombinedSearchResult,
     CombinedSearchResults,
     LibrarySearchInfo,
@@ -20,6 +21,7 @@ __all__ = [
     "LibraryAggregator",
     "AggregatedBooks",
     "AggregatedHistory",
+    "CombinedBookDetails",
     "CombinedSearchResult",
     "CombinedSearchResults",
     "LibrarySearchInfo",

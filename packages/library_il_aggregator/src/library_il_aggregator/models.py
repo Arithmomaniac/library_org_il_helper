@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Optional
 
-from library_il_client import CheckedOutBook, HistoryItem, SearchResult
+from library_il_client import BookCopy, BookDetails, CheckedOutBook, HistoryItem, SearchResult
 
 
 @dataclass
@@ -162,3 +162,69 @@ class CombinedSearchResults:
                     f"(showing {info.fetched_count} of {info.total_count})"
                 )
         return warnings
+
+
+@dataclass
+class CombinedBookDetails:
+    """Combined book details from multiple libraries.
+    
+    This represents the detailed information about a book title, including
+    all copies from all libraries where it was found.
+    """
+    
+    # Common book information (from highest-ranked/first available library)
+    title: str
+    author: Optional[str] = None
+    series: Optional[str] = None
+    series_number: Optional[str] = None
+    
+    # All library-specific details
+    # Each BookDetails contains the copies from that library
+    library_details: list[BookDetails] = field(default_factory=list)
+    
+    # Errors encountered during fetching
+    errors: dict[str, str] = field(default_factory=dict)
+    
+    @property
+    def library_slugs(self) -> list[str]:
+        """Get all library slugs where this book was found."""
+        return [d.library_slug for d in self.library_details if d.library_slug]
+    
+    @property
+    def library_count(self) -> int:
+        """Number of libraries where this book was found."""
+        return len(self.library_details)
+    
+    @property
+    def total_copy_count(self) -> int:
+        """Total number of copies across all libraries."""
+        return sum(d.copy_count for d in self.library_details)
+    
+    @property
+    def all_copies(self) -> list[BookCopy]:
+        """Get all copies from all libraries."""
+        copies = []
+        for details in self.library_details:
+            copies.extend(details.copies)
+        return copies
+    
+    def copies_by_library(self) -> dict[str, list[BookCopy]]:
+        """Get copies grouped by library slug."""
+        result: dict[str, list[BookCopy]] = {}
+        for details in self.library_details:
+            slug = details.library_slug or "unknown"
+            result[slug] = details.copies
+        return result
+    
+    def format_copies_summary(self) -> str:
+        """Format a summary of copies across all libraries."""
+        parts = []
+        for details in self.library_details:
+            if details.library_slug:
+                parts.append(f"{details.library_slug}:{details.copy_count}")
+        return ", ".join(parts) if parts else "0 copies"
+    
+    def __str__(self) -> str:
+        author_str = f" / {self.author}" if self.author else ""
+        copies_str = f" ({self.total_copy_count} copies in {self.library_count} libraries)"
+        return f"{self.title}{author_str}{copies_str}"

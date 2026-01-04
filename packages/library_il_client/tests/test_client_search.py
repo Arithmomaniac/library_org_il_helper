@@ -195,3 +195,72 @@ class TestLibraryClientSearchShemesh:
         for item in results.items:
             assert isinstance(item, SearchResult)
             assert item.library_slug == "shemesh"
+
+
+class TestLibraryClientBookDetails:
+    """Tests for the get_book_details functionality."""
+    
+    @pytest_asyncio.fixture
+    async def client(self):
+        """Create a client for the betshemesh library."""
+        client = LibraryClient("betshemesh")
+        yield client
+        await client.close()
+    
+    @pytest.mark.asyncio
+    async def test_get_book_details_returns_details(self, client):
+        """Test that get_book_details returns BookDetails with copies."""
+        from library_il_client import BookDetails, BookCopy
+        
+        # First search to get a title_id
+        results = await client.search(title="כראמל", max_results=1)
+        assert len(results.items) > 0
+        
+        title_id = results.items[0].title_id
+        assert title_id is not None
+        
+        # Get book details
+        details = await client.get_book_details(title_id)
+        
+        assert details is not None
+        assert isinstance(details, BookDetails)
+        assert details.title is not None
+        assert len(details.title) > 0
+        assert details.library_slug == "betshemesh"
+    
+    @pytest.mark.asyncio
+    async def test_book_details_has_copies(self, client):
+        """Test that book details includes copy information."""
+        from library_il_client import BookCopy
+        
+        # First search to get a title_id
+        results = await client.search(title="כראמל", max_results=1)
+        assert len(results.items) > 0
+        
+        title_id = results.items[0].title_id
+        details = await client.get_book_details(title_id)
+        
+        assert details is not None
+        assert details.copy_count > 0
+        assert len(details.copies) > 0
+        
+        # Check that copies have expected fields
+        for copy in details.copies:
+            assert isinstance(copy, BookCopy)
+            assert copy.barcode is not None
+            assert copy.library_slug == "betshemesh"
+    
+    @pytest.mark.asyncio
+    async def test_book_details_has_metadata(self, client):
+        """Test that book details includes metadata like author."""
+        # First search to get a title_id for a book with known author
+        results = await client.search(author="ברנע", max_results=1)
+        assert len(results.items) > 0
+        
+        title_id = results.items[0].title_id
+        details = await client.get_book_details(title_id)
+        
+        assert details is not None
+        # Book should have author information
+        assert details.author is not None
+        assert len(details.author) > 0
