@@ -326,75 +326,117 @@ async def async_copies(
                 console.print("No copies found.")
             raise typer.Exit(code=0)
         
-        # Prepare table data (full data for export)
-        headers = ["Library", "ID", "Title", "Author", "Barcode", "Status", "Location", "Classification", "Shelf", "Return Date"]
-        table_data_full: list[list[str]] = []
+        # Group copies by book (slug:id) for hierarchical display
+        books_grouped: dict[str, dict] = {}
         for row in all_copies_data:
-            row_data = [
-                row["slug"],
-                row["id"],
-                row["title"],
-                row["author"],
-                row["barcode"],
-                row["status"],
-                row["location"],
-                row["classification"],
-                row["shelf_sign"],
-                row["return_date"],
-            ]
-            table_data_full.append(row_data)
+            book_key = f"{row['slug']}:{row['id']}"
+            if book_key not in books_grouped:
+                books_grouped[book_key] = {
+                    "slug": row["slug"],
+                    "id": row["id"],
+                    "title": row["title"],
+                    "author": row["author"],
+                    "hold_count": row["hold_count"],
+                    "copies": [],
+                }
+            books_grouped[book_key]["copies"].append({
+                "barcode": row["barcode"],
+                "status": row["status"],
+                "location": row["location"],
+                "classification": row["classification"],
+                "shelf_sign": row["shelf_sign"],
+                "return_date": row["return_date"],
+            })
         
         if is_exporting:
             # Export mode
             try:
                 if effective_format == OutputFormat.csv:
+                    # CSV: Flat format with all columns (denormalized)
+                    headers = ["Library", "ID", "Title", "Author", "Barcode", "Status", "Location", "Classification", "Shelf", "Return Date"]
+                    table_data_full: list[list[str]] = []
+                    for row in all_copies_data:
+                        row_data = [
+                            row["slug"],
+                            row["id"],
+                            row["title"],
+                            row["author"],
+                            row["barcode"],
+                            row["status"],
+                            row["location"],
+                            row["classification"],
+                            row["shelf_sign"],
+                            row["return_date"],
+                        ]
+                        table_data_full.append(row_data)
                     content = format_csv(headers, table_data_full)
                 else:
-                    content = format_markdown(headers, table_data_full, "Book Copies")
+                    # Markdown: Hierarchical format with book headers + copy tables
+                    content = "## Book Copies\n\n"
+                    copy_headers = ["Barcode", "Status", "Location", "Classification", "Shelf", "Return Date"]
+                    
+                    for book_key, book_info in books_grouped.items():
+                        # Book header line with all per-book info
+                        author_str = f" / {book_info['author']}" if book_info['author'] else ""
+                        hold_str = f" (holds: {book_info['hold_count']})" if book_info['hold_count'] is not None else ""
+                        content += f"### {book_info['slug']}:{book_info['id']} - {book_info['title']}{author_str}{hold_str}\n\n"
+                        
+                        # Copies table
+                        copy_data = []
+                        for copy in book_info["copies"]:
+                            copy_data.append([
+                                copy["barcode"],
+                                copy["status"],
+                                copy["location"],
+                                copy["classification"],
+                                copy["shelf_sign"],
+                                copy["return_date"],
+                            ])
+                        content += format_markdown(copy_headers, copy_data)
+                        content += "\n"
                 
                 write_output(content, output, effective_format)
             except OSError as e:
                 err_console.print(f"Error: Failed to write output: {e}")
                 raise typer.Exit(code=1)
         else:
-            # Display mode - show to console with rich formatting
+            # Display mode - show to console with hierarchical rich formatting
             console.print("[bold]## Book Copies[/bold]")
             console.print()
-            console.print(f"[bold]Total: {len(all_copies_data)} copies[/bold]")
+            console.print(f"[bold]Total: {len(all_copies_data)} copies across {len(books_grouped)} book(s)[/bold]")
             console.print()
             
-            # Use rich table for display with truncation
-            table = Table(show_header=True, header_style="bold")
-            table.add_column("Library")
-            table.add_column("ID", max_width=MAX_ID_LEN)
-            table.add_column("Title", max_width=MAX_TITLE_LEN)
-            table.add_column("Author", max_width=MAX_AUTHOR_LEN)
-            table.add_column("Barcode")
-            table.add_column("Status")
-            table.add_column("Location")
-            table.add_column("Classification")
-            table.add_column("Shelf")
-            table.add_column("Return Date")
-            
-            for row in all_copies_data:
-                table.add_row(
-                    row["slug"],
-                    truncate(row["id"], MAX_ID_LEN),
-                    truncate(row["title"], MAX_TITLE_LEN),
-                    truncate(row["author"], MAX_AUTHOR_LEN),
-                    row["barcode"],
-                    row["status"],
-                    row["location"],
-                    row["classification"],
-                    row["shelf_sign"],
-                    row["return_date"],
-                )
-            
-            console.print(table)
+            for book_key, book_info in books_grouped.items():
+                # Book header line with all per-book info
+                author_str = f" / {book_info['author']}" if book_info['author'] else ""
+                hold_str = f" (holds: {book_info['hold_count']})" if book_info['hold_count'] is not None else ""
+                console.print(f"[bold]### {book_info['slug']}:{book_info['id']} - {book_info['title']}{author_str}{hold_str}[/bold]")
+                console.print()
+                
+                # Copies table (only copy-specific columns)
+                table = Table(show_header=True, header_style="bold")
+                table.add_column("Barcode")
+                table.add_column("Status")
+                table.add_column("Location")
+                table.add_column("Classification")
+                table.add_column("Shelf")
+                table.add_column("Return Date")
+                
+                for copy in book_info["copies"]:
+                    table.add_row(
+                        copy["barcode"],
+                        copy["status"],
+                        copy["location"],
+                        copy["classification"],
+                        copy["shelf_sign"],
+                        copy["return_date"],
+                    )
+                
+                console.print(table)
+                console.print()
             
             # Show note if no authenticated data was found
             if not has_authenticated_data:
-                console.print()
                 console.print("[dim]Note: Status and Return Date columns require authentication.[/dim]")
                 console.print("[dim]Use --username and --password, or set TEUDAT_ZEHUT and LIBRARY_PASSWORD.[/dim]")
 
