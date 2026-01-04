@@ -180,15 +180,37 @@ class BookCopy:
     shelf_sign: Optional[str] = None  # סימן מדף - shelf sign
     volume: Optional[str] = None  # כרך - volume number
     library_slug: Optional[str] = None
+    # Authenticated-only fields (visible when logged in)
+    status: Optional[str] = None  # סטטוס - e.g., "מושאל" (checked out), "זמין" (available)
+    loan_days: Optional[int] = None  # ימי השאלה - number of loan days
+    return_date: Optional[date] = None  # תאריך החזרה - expected return date (if checked out)
+    
+    @property
+    def is_available(self) -> bool:
+        """Check if the copy is available (not checked out)."""
+        if self.status is None:
+            return True  # Assume available if status unknown
+        return self.status == "זמין" or "available" in self.status.lower()
+    
+    @property
+    def is_checked_out(self) -> bool:
+        """Check if the copy is currently checked out."""
+        if self.status is None:
+            return False
+        return self.status == "מושאל" or "checked" in self.status.lower()
     
     def __str__(self) -> str:
         parts = []
         if self.barcode:
             parts.append(f"#{self.barcode}")
+        if self.status:
+            parts.append(f"({self.status})")
         if self.location:
             parts.append(self.location)
         if self.shelf_sign:
             parts.append(f"[{self.shelf_sign}]")
+        if self.return_date:
+            parts.append(f"returns: {self.return_date}")
         return " ".join(parts) if parts else "Copy"
 
 
@@ -206,11 +228,23 @@ class BookDetails:
     series_number: Optional[str] = None  # מס' בסדרה
     library_slug: Optional[str] = None
     copies: list[BookCopy] = field(default_factory=list)
+    # Authenticated-only field (visible when logged in)
+    hold_count: Optional[int] = None  # כמות הזמנות לכותר - number of holds on this title
     
     @property
     def copy_count(self) -> int:
         """Number of copies available."""
         return len(self.copies)
+    
+    @property
+    def available_count(self) -> int:
+        """Number of copies currently available (not checked out)."""
+        return sum(1 for c in self.copies if c.is_available)
+    
+    @property
+    def checked_out_count(self) -> int:
+        """Number of copies currently checked out."""
+        return sum(1 for c in self.copies if c.is_checked_out)
     
     def __str__(self) -> str:
         author_str = f" / {self.author}" if self.author else ""

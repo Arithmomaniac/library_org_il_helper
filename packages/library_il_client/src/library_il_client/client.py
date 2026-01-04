@@ -898,6 +898,8 @@ class LibraryClient:
         The details page typically has:
         - A copies table with columns: מספר, מיקום, מס' מיון, סימן מדף, כרך
         - A metadata table with book information
+        - When logged in: additional columns (סטטוס, ימי השאלה, תאריך החזרה)
+        - When logged in: hold count info (כמות הזמנות לכותר)
         """
         soup = BeautifulSoup(html, "lxml")
         
@@ -917,6 +919,9 @@ class LibraryClient:
         if not title:
             return None
         
+        # Parse hold count (authenticated-only)
+        hold_count = self._parse_hold_count(soup)
+        
         # Parse copies from the copies table
         copies = self._parse_copies_table(soup)
         
@@ -934,10 +939,31 @@ class LibraryClient:
             series_number=metadata.get("series_number"),
             library_slug=self.library_slug,
             copies=copies,
+            hold_count=hold_count,
         )
     
+    def _parse_hold_count(self, soup: BeautifulSoup) -> Optional[int]:
+        """Parse the hold count from the book details page.
+        
+        When logged in, the page shows text like:
+        "כמות הזמנות לכותר: 0"
+        """
+        for text in soup.stripped_strings:
+            if "כמות הזמנות לכותר" in text:
+                # Extract the number
+                match = re.search(r"כמות הזמנות לכותר[:\s]*(\d+)", text)
+                if match:
+                    return int(match.group(1))
+        return None
+    
     def _parse_copies_table(self, soup: BeautifulSoup) -> list[BookCopy]:
-        """Parse the copies table from the book details page."""
+        """Parse the copies table from the book details page.
+        
+        When logged in, the table has additional columns:
+        - סטטוס (Status - e.g., "מושאל" = checked out, "זמין" = available)
+        - ימי השאלה (Loan days)
+        - תאריך החזרה (Return date - if checked out)
+        """
         copies = []
         
         # Find the copies table (has מיקום header)
@@ -948,13 +974,16 @@ class LibraryClient:
             if not any("מיקום" in h for h in headers):
                 continue
             
-            # Get column indices
+            # Get column indices (including authenticated-only columns)
             col_indices = {
                 "barcode": self._find_header_index(headers, ["מספר"]),
+                "status": self._find_header_index(headers, ["סטטוס"]),
                 "location": self._find_header_index(headers, ["מיקום"]),
                 "classification": self._find_header_index(headers, ["מס' מיון"]),
                 "shelf_sign": self._find_header_index(headers, ["סימן מדף"]),
                 "volume": self._find_header_index(headers, ["כרך"]),
+                "loan_days": self._find_header_index(headers, ["ימי השאלה"]),
+                "return_date": self._find_header_index(headers, ["תאריך החזרה"]),
             }
             
             # Parse data rows
@@ -973,7 +1002,10 @@ class LibraryClient:
         return copies
     
     def _parse_copy_row(self, cells, col_indices: dict) -> Optional[BookCopy]:
-        """Parse a single row from the copies table."""
+        """Parse a single row from the copies table.
+        
+        Handles both public view (fewer columns) and authenticated view (more columns).
+        """
         try:
             cell_texts = [cell.get_text(strip=True) for cell in cells]
             
@@ -988,12 +1020,27 @@ class LibraryClient:
             if not barcode:
                 return None
             
+            # Parse loan_days as integer
+            loan_days = None
+            loan_days_str = get_cell("loan_days")
+            if loan_days_str and loan_days_str.isdigit():
+                loan_days = int(loan_days_str)
+            
+            # Parse return_date
+            return_date = None
+            return_date_str = get_cell("return_date")
+            if return_date_str:
+                return_date = self._parse_date(return_date_str)
+            
             return BookCopy(
                 barcode=barcode,
+                status=get_cell("status"),
                 location=get_cell("location"),
                 classification=get_cell("classification"),
                 shelf_sign=get_cell("shelf_sign"),
                 volume=get_cell("volume"),
+                loan_days=loan_days,
+                return_date=return_date,
                 library_slug=self.library_slug,
             )
         except Exception:

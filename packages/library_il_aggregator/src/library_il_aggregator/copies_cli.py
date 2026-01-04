@@ -76,6 +76,10 @@ Format:
   Each argument should be a slug:id pair where:
   - slug: Library identifier (e.g., "shemesh", "betshemesh")
   - id: Title ID from the library catalog (visible in URLs)
+
+Note:
+  Some columns (Status, Return Date) are only available when authenticated.
+  The library-il-copies command uses public data by default.
 """,
     )
     
@@ -113,6 +117,7 @@ Format:
         # Fetch details for all books (preserving order from input)
         all_copies_data: list[dict] = []
         errors: list[str] = []
+        has_authenticated_data = False
         
         for slug, title_id in slug_id_pairs:
             try:
@@ -128,16 +133,26 @@ Format:
                     if lib_details.library_slug == slug:
                         # Add each copy as a row
                         for copy in lib_details.copies:
+                            # Format return date
+                            return_date_str = ""
+                            if copy.return_date:
+                                return_date_str = copy.return_date.strftime("%d/%m/%Y")
+                            
+                            # Check if we have authenticated data
+                            if copy.status:
+                                has_authenticated_data = True
+                            
                             all_copies_data.append({
                                 "slug": slug,
                                 "id": title_id,
                                 "title": lib_details.title,
                                 "author": lib_details.author or "",
                                 "barcode": copy.barcode or "",
+                                "status": copy.status or "",
                                 "location": copy.location or "",
                                 "shelf_sign": copy.shelf_sign or "",
-                                "classification": copy.classification or "",
-                                "volume": copy.volume or "",
+                                "return_date": return_date_str,
+                                "hold_count": lib_details.hold_count,
                             })
                         
                         # If no copies, still show the book info
@@ -148,10 +163,11 @@ Format:
                                 "title": lib_details.title,
                                 "author": lib_details.author or "",
                                 "barcode": "(no copies)",
+                                "status": "",
                                 "location": "",
                                 "shelf_sign": "",
-                                "classification": "",
-                                "volume": "",
+                                "return_date": "",
+                                "hold_count": lib_details.hold_count,
                             })
                         break
                 else:
@@ -180,18 +196,26 @@ Format:
         # Prepare table data
         table_data = []
         for row in all_copies_data:
-            table_data.append([
+            row_data = [
                 row["slug"],
                 truncate(row["id"], MAX_ID_LEN),
                 truncate(row["title"], MAX_TITLE_LEN),
                 truncate(row["author"], MAX_AUTHOR_LEN),
                 row["barcode"],
+                row["status"],
                 row["location"],
                 row["shelf_sign"],
-            ])
+                row["return_date"],
+            ]
+            table_data.append(row_data)
         
-        headers = ["Library", "ID", "Title", "Author", "Barcode", "Location", "Shelf"]
+        headers = ["Library", "ID", "Title", "Author", "Barcode", "Status", "Location", "Shelf", "Return Date"]
         print(tabulate(table_data, headers=headers, tablefmt="github"))
+        
+        # Show note if no authenticated data was found
+        if not has_authenticated_data:
+            print()
+            print("*Note: Status and Return Date columns require authentication.*")
     
     return 0
 
