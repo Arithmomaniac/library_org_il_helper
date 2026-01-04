@@ -5,9 +5,10 @@ from __future__ import annotations
 import asyncio
 from typing import Optional
 
-from library_il_client import LibraryClient, SearchResult, SearchResults
+from library_il_client import BookDetails, LibraryClient, LoginError, SearchResult, SearchResults
 
 from library_il_aggregator.models import (
+    CombinedBookDetails,
     CombinedSearchResult,
     CombinedSearchResults,
     LibrarySearchInfo,
@@ -22,12 +23,23 @@ class SearchAggregator:
     results with deduplication and ranking.
     
     Note: No login is required for searching - catalog searches are public.
+    However, login is required to get authenticated copy information
+    (status, return date, hold count).
     
     Example:
         >>> async with SearchAggregator(["shemesh", "betshemesh"]) as aggregator:
         ...     results = await aggregator.search(title="כראמל")
         ...     for item in results.items:
         ...         print(f"{item.primary.title} - found in {item.library_count} libraries")
+    
+    With authentication for copy details:
+        >>> async with SearchAggregator(["shemesh", "betshemesh"]) as aggregator:
+        ...     # Login to get authenticated copy info
+        ...     await aggregator.login("shemesh", username="tz", password="pass")
+        ...     results = await aggregator.search(title="כראמל")
+        ...     pairs = [(r.library_slug, r.title_id) for r in results.items[0].library_results]
+        ...     details = await aggregator.get_combined_details(pairs)
+        ...     # Now details will include status, return_date, hold_count
     """
     
     def __init__(self, library_slugs: list[str]):
@@ -39,6 +51,7 @@ class SearchAggregator:
         """
         self.library_slugs = library_slugs
         self._clients: dict[str, LibraryClient] = {}
+        self._logged_in_slugs: set[str] = set()
     
     async def __aenter__(self) -> "SearchAggregator":
         """Async context manager entry."""
@@ -54,12 +67,86 @@ class SearchAggregator:
         if close_tasks:
             await asyncio.gather(*close_tasks, return_exceptions=True)
         self._clients.clear()
+        self._logged_in_slugs.clear()
     
     def _get_or_create_client(self, slug: str) -> LibraryClient:
         """Get or create a client for the specified library."""
         if slug not in self._clients:
             self._clients[slug] = LibraryClient(slug)
         return self._clients[slug]
+    
+    async def login(
+        self,
+        slug: str,
+        username: str,
+        password: str,
+    ) -> bool:
+        """
+        Login to a specific library to enable authenticated data access.
+        
+        When logged in, get_book_details will return additional fields:
+        - BookCopy.status (e.g., "מושאל", "זמין")
+        - BookCopy.loan_days
+        - BookCopy.return_date
+        - BookDetails.hold_count
+        
+        Args:
+            slug: Library identifier (e.g., "shemesh")
+            username: Username (typically Teudat Zehut)
+            password: Password for the account
+            
+        Returns:
+            True if login succeeded, False otherwise.
+        """
+        client = self._get_or_create_client(slug)
+        try:
+            await client.login(username, password)
+            self._logged_in_slugs.add(slug)
+            return True
+        except LoginError:
+            return False
+    
+    async def login_all(
+        self,
+        credentials: dict[str, tuple[str, str]],
+    ) -> dict[str, bool]:
+        """
+        Login to multiple libraries in parallel.
+        
+        Args:
+            credentials: Dictionary mapping library slug to (username, password) tuple.
+                        Example: {"shemesh": ("tz", "pass"), "betshemesh": ("tz", "pass")}
+            
+        Returns:
+            Dictionary mapping library slug to login success status.
+        """
+        async def do_login(slug: str, username: str, password: str) -> tuple[str, bool]:
+            success = await self.login(slug, username, password)
+            return slug, success
+        
+        tasks = [
+            do_login(slug, username, password)
+            for slug, (username, password) in credentials.items()
+        ]
+        
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Build results dictionary, handling both successful results and exceptions
+        login_results: dict[str, bool] = {}
+        slugs = list(credentials.keys())
+        for i, result in enumerate(results):
+            slug = slugs[i]
+            if isinstance(result, Exception):
+                login_results[slug] = False
+            else:
+                _, success = result
+                login_results[slug] = success
+        
+        return login_results
+    
+    def is_logged_in(self, slug: str) -> bool:
+        """Check if a library client is logged in."""
+        return slug in self._logged_in_slugs
     
     async def search(
         self,
@@ -212,3 +299,78 @@ class SearchAggregator:
         score += rank_bonus
         
         return float(score)
+    
+    async def get_combined_details(
+        self,
+        slug_id_pairs: list[tuple[str, str]],
+    ) -> CombinedBookDetails:
+        """
+        Get combined book details from multiple libraries by slug-id pairs.
+        
+        This method fetches detailed book information (including copies and locations)
+        for a book from multiple libraries and combines them into a single view.
+        
+        Note: This method does NOT require login - book details are public.
+        
+        Args:
+            slug_id_pairs: List of (library_slug, title_id) tuples specifying
+                          which books to fetch from which libraries.
+                          
+        Returns:
+            CombinedBookDetails with all book details and copies from all libraries.
+            
+        Example:
+            >>> async with SearchAggregator(["shemesh", "betshemesh"]) as aggregator:
+            ...     # First search to get title_ids
+            ...     results = await aggregator.search(title="כראמל")
+            ...     # Get the slug-id pairs from the first result
+            ...     pairs = [(r.library_slug, r.title_id) for r in results.items[0].library_results]
+            ...     # Fetch combined details
+            ...     details = await aggregator.get_combined_details(pairs)
+            ...     print(f"Total copies: {details.total_copy_count}")
+        """
+        # Fetch details from all libraries in parallel
+        async def fetch_details(slug: str, title_id: str) -> tuple[str, Optional[BookDetails], Optional[str]]:
+            try:
+                client = self._get_or_create_client(slug)
+                details = await client.get_book_details(title_id)
+                return slug, details, None
+            except Exception as e:
+                return slug, None, str(e)
+        
+        tasks = [fetch_details(slug, title_id) for slug, title_id in slug_id_pairs]
+        results = await asyncio.gather(*tasks)
+        
+        # Collect results and errors
+        library_details: list[BookDetails] = []
+        errors: dict[str, str] = {}
+        
+        # Use the first successful result for common fields
+        title = ""
+        author = None
+        series = None
+        series_number = None
+        
+        for slug, details, error in results:
+            if error:
+                errors[slug] = error
+                continue
+            
+            if details:
+                library_details.append(details)
+                
+                # Set common fields from first successful result
+                if not title:
+                    title = details.title
+                    author = details.author
+                    series = details.series
+                    series_number = details.series_number
+        
+        return CombinedBookDetails(
+            title=title,
+            author=author,
+            series=series,
+            series_number=series_number,
+            library_details=library_details,
+            errors=errors,
+        )

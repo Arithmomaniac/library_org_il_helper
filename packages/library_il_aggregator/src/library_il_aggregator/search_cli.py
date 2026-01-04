@@ -37,6 +37,9 @@ Examples:
   
   # Limit total displayed results
   library-il-search --title "ספר" --limit 10
+  
+  # Show slug:id pairs for use with library-il-copies command
+  library-il-search --title "כראמל" --show-ids
 """,
     )
     
@@ -82,6 +85,12 @@ Examples:
         type=int,
         default=0,
         help="Limit total displayed results (0 = no limit)",
+    )
+    result_group.add_argument(
+        "--show-ids",
+        "-i",
+        action="store_true",
+        help="Show slug:id pairs in output (for use with library-il-copies command)",
     )
     
     args = parser.parse_args()
@@ -143,8 +152,9 @@ Examples:
         for item in items_to_show:
             # Title (truncate if too long)
             title = item.title
-            if len(title) > 50:
-                title = title[:47] + "..."
+            title_display = title
+            if len(title_display) > 50:
+                title_display = title_display[:47] + "..."
             
             # Author (truncate if too long)
             author = item.author or ""
@@ -165,14 +175,28 @@ Examples:
             elif item.series_number:
                 series_info = f"#{item.series_number}"
             
-            table_data.append([
-                title,
+            row = [
+                title_display,
                 author,
                 series_info,
                 libs,
-            ])
+            ]
+            
+            # Add slug:id pairs column if --show-ids was specified
+            if args.show_ids:
+                slug_ids = []
+                for r in item.library_results:
+                    if r.library_slug and r.title_id:
+                        slug_ids.append(f"{r.library_slug}:{r.title_id}")
+                ids_str = " ".join(slug_ids)
+                row.append(ids_str)
+            
+            table_data.append(row)
         
         headers = ["Title", "Author", "Series", "Libraries"]
+        if args.show_ids:
+            headers.append("Slug:ID")
+        
         print(tabulate(table_data, headers=headers, tablefmt="github"))
         
         # Show if results were truncated
