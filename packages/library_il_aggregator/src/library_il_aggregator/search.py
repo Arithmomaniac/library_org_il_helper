@@ -131,11 +131,18 @@ class SearchAggregator:
         
         results = await asyncio.gather(*tasks, return_exceptions=True)
         
-        return {
-            slug: success if not isinstance(result, Exception) else False
-            for result in results
-            for slug, success in ([result] if not isinstance(result, Exception) else [(result, False)])
-        }
+        # Build results dictionary, handling both successful results and exceptions
+        login_results: dict[str, bool] = {}
+        slugs = list(credentials.keys())
+        for i, result in enumerate(results):
+            slug = slugs[i]
+            if isinstance(result, Exception):
+                login_results[slug] = False
+            else:
+                _, success = result
+                login_results[slug] = success
+        
+        return login_results
     
     def is_logged_in(self, slug: str) -> bool:
         """Check if a library client is logged in."""

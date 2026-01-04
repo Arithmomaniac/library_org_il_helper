@@ -171,11 +171,11 @@ Authentication:
                 credentials[slug] = (username, password)
     
     async with SearchAggregator(unique_slugs) as aggregator:
-        # Login if credentials were provided
+        # Login if credentials were provided (in parallel)
         if credentials:
             print(f"Logging in to {len(credentials)} library(s)...")
-            for slug, (username, password) in credentials.items():
-                success = await aggregator.login(slug, username, password)
+            login_results = await aggregator.login_all(credentials)
+            for slug, success in login_results.items():
                 status = "✓" if success else "✗"
                 print(f"  {status} {slug}")
             print()
