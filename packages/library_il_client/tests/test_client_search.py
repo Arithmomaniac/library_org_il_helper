@@ -224,7 +224,7 @@ class TestLibraryClientDownloadHtml:
         assert isinstance(html, str)
         assert len(html) > 0
         # Search page should have a form
-        assert "<form" in html.lower() or "form" in html.lower()
+        assert "<form" in html.lower()
     
     @pytest.mark.asyncio
     async def test_download_html_with_absolute_url(self, client):
