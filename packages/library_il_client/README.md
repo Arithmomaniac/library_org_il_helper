@@ -9,6 +9,7 @@ A Python utility library for interacting with library.org.il Israeli public libr
 - **Get Checked Out Books**: Retrieve the list of currently borrowed books with due dates
 - **Renew Books**: Renew checked out books to extend their due dates
 - **Checkout History**: Get the complete history of previously borrowed books
+- **Download HTML Pages**: Download raw HTML from authenticated pages for archiving or offline viewing
 
 ## Installation
 
@@ -90,6 +91,31 @@ async def main():
         if books:
             result = await client.renew_book(books[0])
             print(f"Renewal {'succeeded' if result.success else 'failed'}")
+
+asyncio.run(main())
+```
+
+### Downloading HTML Pages
+
+```python
+import asyncio
+from library_il_client import LibraryClient
+
+async def main():
+    async with LibraryClient("shemesh") as client:
+        await client.login("your_teudat_zehut", "your_password")
+        
+        # Download the HTML of an authenticated page
+        html = await client.download_page_html("/user-loans")
+        
+        # Save to a file for offline viewing or archiving
+        with open("my_loans.html", "w", encoding="utf-8") as f:
+            f.write(html)
+        
+        # Download checkout history page
+        history_html = await client.download_page_html("/loans-history")
+        with open("my_history.html", "w", encoding="utf-8") as f:
+            f.write(history_html)
 
 asyncio.run(main())
 ```

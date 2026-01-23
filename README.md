@@ -18,6 +18,7 @@ The core utility library for interacting with individual library.org.il websites
 - Get currently checked out books
 - Renew checked out books
 - Get checkout history
+- Download HTML pages for archiving or offline viewing
 
 ```python
 import asyncio

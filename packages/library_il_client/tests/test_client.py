@@ -152,6 +152,45 @@ class TestLibraryClientShemesh:
         async with LibraryClient("shemesh") as client:
             with pytest.raises(LibraryClientError):
                 await client.get_checked_out_books()
+    
+    @pytest.mark.asyncio
+    async def test_download_page_html(self, client):
+        """Test downloading HTML from an authenticated page."""
+        html = await client.download_page_html("/user-loans")
+        
+        assert isinstance(html, str)
+        assert len(html) > 0
+        # Check that it's valid HTML
+        assert "<html" in html.lower() or "<!doctype" in html.lower()
+        # Check that it contains expected library-specific content
+        assert "library" in html.lower() or "ספריה" in html
+    
+    @pytest.mark.asyncio
+    async def test_download_page_html_history(self, client):
+        """Test downloading HTML from checkout history page."""
+        html = await client.download_page_html("/loans-history")
+        
+        assert isinstance(html, str)
+        assert len(html) > 0
+        # Check that it's valid HTML
+        assert "<html" in html.lower() or "<!doctype" in html.lower()
+    
+    @pytest.mark.asyncio
+    async def test_download_page_html_absolute_url(self, client):
+        """Test downloading HTML with absolute URL."""
+        # Use the full URL including the library subdomain
+        full_url = f"{client.base_url}/user-loans"
+        html = await client.download_page_html(full_url)
+        
+        assert isinstance(html, str)
+        assert len(html) > 0
+    
+    @pytest.mark.asyncio
+    async def test_download_page_html_not_logged_in(self):
+        """Test that download_page_html requires login."""
+        async with LibraryClient("shemesh") as client:
+            with pytest.raises(LibraryClientError):
+                await client.download_page_html("/user-loans")
 
 
 class TestLibraryClientBetshemesh:

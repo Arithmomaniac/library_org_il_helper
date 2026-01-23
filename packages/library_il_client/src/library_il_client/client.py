@@ -653,6 +653,54 @@ class LibraryClient:
         history = await self.get_checkout_history()
         return history.items
     
+    async def download_page_html(self, page_path: str) -> str:
+        """
+        Download the raw HTML of an authenticated page.
+        
+        This method is useful for:
+        - Debugging and development
+        - Archiving library data
+        - Offline viewing of library pages
+        
+        Args:
+            page_path: The path of the page to download (e.g., "/user-loans", "/loans-history")
+                      Can be an absolute URL or a path relative to the library's base URL.
+        
+        Returns:
+            The raw HTML content of the page as a string.
+            
+        Raises:
+            LibraryClientError: If not logged in.
+            SessionExpiredError: If the session has expired.
+            httpx.HTTPError: If the HTTP request fails.
+        
+        Example:
+            >>> async with LibraryClient("shemesh") as client:
+            ...     await client.login("username", "password")
+            ...     # Download the loans page
+            ...     html = await client.download_page_html("/user-loans")
+            ...     with open("loans.html", "w", encoding="utf-8") as f:
+            ...         f.write(html)
+        """
+        self._ensure_logged_in()
+        
+        # Construct the full URL
+        if page_path.startswith("http"):
+            url = page_path
+        else:
+            url = urljoin(self.base_url, page_path)
+        
+        # Fetch the page
+        response = await self._client.get(url)
+        response.raise_for_status()
+        
+        # Check if session expired (redirected to login)
+        if "/mng" in str(response.url) and "profile" not in str(response.url):
+            self._logged_in = False
+            raise SessionExpiredError("Session has expired. Please login again.")
+        
+        return response.text
+    
     async def search(
         self,
         title: Optional[str] = None,
