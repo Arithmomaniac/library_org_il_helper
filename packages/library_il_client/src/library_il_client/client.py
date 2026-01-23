@@ -312,8 +312,8 @@ class LibraryClient:
                 "Absolute URLs are not allowed for security reasons."
             )
         
-        # Use string concatenation instead of urljoin to prevent URL manipulation
-        url = self.base_url + path
+        # Build the URL using urljoin (safe since we've validated the path)
+        url = urljoin(self.base_url, path)
         
         response = await self._client.get(url)
         response.raise_for_status()
