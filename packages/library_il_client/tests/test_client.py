@@ -191,6 +191,13 @@ class TestLibraryClientShemesh:
         """Test that download_html rejects paths not starting with /."""
         with pytest.raises(LibraryClientError):
             await client.download_html("user-loans")
+    
+    @pytest.mark.asyncio
+    async def test_download_html_rejects_protocol_relative_urls(self, client):
+        """Test that download_html rejects protocol-relative URLs for security."""
+        with pytest.raises(LibraryClientError) as exc_info:
+            await client.download_html("//malicious.example.com/steal")
+        assert "protocol-relative" in str(exc_info.value).lower()
 
 
 class TestLibraryClientBetshemesh:

@@ -291,13 +291,29 @@ class LibraryClient:
         self._ensure_logged_in()
         
         # Validate path to prevent accessing external URLs
+        # Reject protocol schemes (e.g., http://, https://, javascript:)
+        if "://" in path:
+            raise LibraryClientError(
+                "Path must be a relative path. "
+                "Absolute URLs with schemes are not allowed for security reasons."
+            )
+        
+        # Reject protocol-relative URLs (e.g., //malicious.com/path)
+        if path.startswith("//"):
+            raise LibraryClientError(
+                "Path must be a relative path starting with a single '/'. "
+                "Protocol-relative URLs are not allowed for security reasons."
+            )
+        
+        # Require paths to start with /
         if not path.startswith("/"):
             raise LibraryClientError(
                 "Path must be a relative path starting with '/'. "
                 "Absolute URLs are not allowed for security reasons."
             )
         
-        url = urljoin(self.base_url, path)
+        # Use string concatenation instead of urljoin to prevent URL manipulation
+        url = self.base_url + path
         
         response = await self._client.get(url)
         response.raise_for_status()
