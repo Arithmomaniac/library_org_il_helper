@@ -197,6 +197,63 @@ class TestLibraryClientSearchShemesh:
             assert item.library_slug == "shemesh"
 
 
+class TestLibraryClientDownloadHtml:
+    """Tests for the download_html functionality."""
+    
+    @pytest_asyncio.fixture
+    async def client(self):
+        """Create a client for the betshemesh library."""
+        client = LibraryClient("betshemesh")
+        yield client
+        await client.close()
+    
+    @pytest.mark.asyncio
+    async def test_download_html_returns_string(self, client):
+        """Test that download_html returns HTML content as a string."""
+        html = await client.download_html("/")
+        
+        assert isinstance(html, str)
+        assert len(html) > 0
+        assert "<html" in html.lower() or "<!doctype" in html.lower()
+    
+    @pytest.mark.asyncio
+    async def test_download_html_with_relative_path(self, client):
+        """Test download_html with a relative path."""
+        html = await client.download_html("/agron-catalog/simple-search-submenu")
+        
+        assert isinstance(html, str)
+        assert len(html) > 0
+        # Search page should have a form
+        assert "<form" in html.lower()
+    
+    @pytest.mark.asyncio
+    async def test_download_html_with_absolute_url(self, client):
+        """Test download_html with an absolute URL from the same domain."""
+        html = await client.download_html("https://betshemesh.library.org.il/")
+        
+        assert isinstance(html, str)
+        assert len(html) > 0
+    
+    @pytest.mark.asyncio
+    async def test_download_html_rejects_external_domain(self, client):
+        """Test that download_html rejects URLs from external domains."""
+        with pytest.raises(ValueError) as exc_info:
+            await client.download_html("https://example.com/")
+        
+        assert "does not match" in str(exc_info.value)
+        assert "example.com" in str(exc_info.value)
+    
+    @pytest.mark.asyncio
+    async def test_download_html_without_login(self):
+        """Test that download_html works without logging in for public pages."""
+        async with LibraryClient("betshemesh") as client:
+            # Should work without calling login()
+            html = await client.download_html("/")
+            
+            assert isinstance(html, str)
+            assert len(html) > 0
+
+
 class TestLibraryClientBookDetails:
     """Tests for the get_book_details functionality."""
     
