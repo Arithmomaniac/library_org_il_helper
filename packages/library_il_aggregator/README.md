@@ -11,7 +11,9 @@ Aggregates library data from multiple library.org.il Israeli public library webs
 - **Parallel Fetching**: Fetch data from all libraries simultaneously for faster results
 - **Unified Checked Out Books**: See all currently borrowed books across all accounts
 - **Combined History**: View checkout history from all accounts sorted by date
-- **CLI Tool**: Command-line interface for quick access
+- **Combined Search**: Search for books across multiple libraries simultaneously
+- **Book Copies Viewer**: View availability and status of book copies across libraries
+- **CLI Tool**: Unified command-line interface for quick access
 - **Config File Support**: Store account credentials in a JSON config file
 
 ## Installation
@@ -30,25 +32,69 @@ pip install library-il-aggregator
 
 ### Command Line
 
+The `library-il` command provides three subcommands:
+
+#### Aggregate - View Checked Out Books and History
+
 ```bash
 # Set credentials via environment variables
 export TEUDAT_ZEHUT=your_teudat_zehut
 export LIBRARY_PASSWORD=your_password
 
 # Get checked out books from both libraries (same credentials)
-library-il-aggregate --libraries shemesh betshemesh --books
+library-il aggregate --libraries shemesh betshemesh --books
 
 # Get checkout history
-library-il-aggregate --libraries shemesh betshemesh --history
+library-il aggregate --libraries shemesh betshemesh --history
 
 # Get everything
-library-il-aggregate --all
+library-il aggregate --all
 
 # Use a config file for multiple accounts
-library-il-aggregate --config accounts.json --all
+library-il aggregate --config accounts.json --all
 
 # Limit results
-library-il-aggregate --history --limit 20
+library-il aggregate --history --limit 20
+```
+
+#### Search - Search Across Multiple Libraries
+
+```bash
+# Search for books by title across default libraries
+library-il search --title "כראמל"
+
+# Search for books by author
+library-il search --author "רולינג"
+
+# Search for books by series
+library-il search --series "הארי פוטר"
+
+# Search specific libraries with custom limit
+library-il search --libraries shemesh betshemesh --title "כראמל" --max-per-library 20
+
+# Limit total displayed results
+library-il search --title "ספר" --limit 10
+
+# Show slug:id pairs for use with library-il copies command
+library-il search --title "כראמל" --show-ids
+```
+
+#### Copies - View Book Copies Across Libraries
+
+```bash
+# View copies for a single book (public data only)
+library-il copies shemesh:ABC123
+
+# View copies with authentication (shows status, return dates)
+library-il copies shemesh:ABC123 --username YOUR_TZ --password YOUR_PASS
+
+# Use environment variables for credentials
+export TEUDAT_ZEHUT=your_tz
+export LIBRARY_PASSWORD=your_password
+library-il copies shemesh:ABC123 betshemesh:DEF456
+
+# Use a JSON config file for credentials
+library-il copies shemesh:ABC123 --config accounts.json
 ```
 
 ### Config File Format
