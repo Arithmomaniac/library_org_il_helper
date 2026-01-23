@@ -8,7 +8,6 @@ import json
 import os
 import sys
 from datetime import date
-from typing import Optional
 
 from tabulate import tabulate
 
