@@ -228,11 +228,20 @@ class TestLibraryClientDownloadHtml:
     
     @pytest.mark.asyncio
     async def test_download_html_with_absolute_url(self, client):
-        """Test download_html with an absolute URL."""
+        """Test download_html with an absolute URL from the same domain."""
         html = await client.download_html("https://betshemesh.library.org.il/")
         
         assert isinstance(html, str)
         assert len(html) > 0
+    
+    @pytest.mark.asyncio
+    async def test_download_html_rejects_external_domain(self, client):
+        """Test that download_html rejects URLs from external domains."""
+        with pytest.raises(ValueError) as exc_info:
+            await client.download_html("https://example.com/")
+        
+        assert "does not match" in str(exc_info.value)
+        assert "example.com" in str(exc_info.value)
     
     @pytest.mark.asyncio
     async def test_download_html_without_login(self):

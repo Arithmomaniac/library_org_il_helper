@@ -6,7 +6,7 @@ import os
 import re
 from datetime import date, datetime
 from typing import Optional
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 import httpx
 from bs4 import BeautifulSoup
@@ -138,6 +138,8 @@ class LibraryClient:
             
         Raises:
             httpx.HTTPStatusError: If the HTTP request fails.
+            ValueError: If an absolute URL is provided that doesn't belong to
+                       the library's domain.
             
         Example:
             >>> async with LibraryClient("shemesh") as client:
@@ -147,6 +149,14 @@ class LibraryClient:
         """
         # Handle both relative and absolute URLs
         if path.startswith("http://") or path.startswith("https://"):
+            # Validate that the absolute URL belongs to the library's domain
+            parsed_url = urlparse(path)
+            parsed_base = urlparse(self.base_url)
+            if parsed_url.netloc != parsed_base.netloc:
+                raise ValueError(
+                    f"URL domain '{parsed_url.netloc}' does not match "
+                    f"library domain '{parsed_base.netloc}'"
+                )
             url = path
         else:
             url = urljoin(self.base_url, path)
