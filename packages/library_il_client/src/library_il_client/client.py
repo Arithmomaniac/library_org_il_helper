@@ -120,6 +120,41 @@ class LibraryClient:
         """Check if the client is logged in."""
         return self._logged_in
     
+    async def download_html(self, path: str) -> str:
+        """
+        Download HTML content from the library website using the current session.
+        
+        This method allows downloading raw HTML from any URL on the library website
+        while using the existing authenticated session (cookies, headers, etc.).
+        This is useful for debugging, accessing features not yet wrapped by the
+        library, or exporting page content.
+        
+        Args:
+            path: URL path (relative to the library base URL, e.g., "/user-loans")
+                  or an absolute URL on the same domain.
+                  
+        Returns:
+            The raw HTML content of the page as a string.
+            
+        Raises:
+            httpx.HTTPStatusError: If the HTTP request fails.
+            
+        Example:
+            >>> async with LibraryClient("shemesh") as client:
+            ...     await client.login("your_tz", "your_password")
+            ...     html = await client.download_html("/user-loans")
+            ...     print(html)  # Raw HTML of the loans page
+        """
+        # Handle both relative and absolute URLs
+        if path.startswith("http://") or path.startswith("https://"):
+            url = path
+        else:
+            url = urljoin(self.base_url, path)
+        
+        response = await self._client.get(url)
+        response.raise_for_status()
+        return response.text
+    
     def _get_csrf_token(self, html: str) -> Optional[str]:
         """Extract CSRF token from HTML form.
         
