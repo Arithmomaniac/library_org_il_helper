@@ -152,6 +152,52 @@ class TestLibraryClientShemesh:
         async with LibraryClient("shemesh") as client:
             with pytest.raises(LibraryClientError):
                 await client.get_checked_out_books()
+    
+    @pytest.mark.asyncio
+    async def test_download_html_success(self, client):
+        """Test downloading HTML content with authenticated session."""
+        html = await client.download_html("/user-loans")
+        
+        assert isinstance(html, str)
+        assert len(html) > 0
+        # HTML should contain some expected content
+        assert "<html" in html.lower() or "<!doctype" in html.lower()
+    
+    @pytest.mark.asyncio
+    async def test_download_html_relative_path(self, client):
+        """Test downloading HTML with relative path."""
+        # Use a different known valid path
+        html = await client.download_html("/loans-history")
+        
+        assert isinstance(html, str)
+        assert len(html) > 0
+    
+    @pytest.mark.asyncio
+    async def test_download_html_not_logged_in(self):
+        """Test that download_html fails when not logged in."""
+        async with LibraryClient("shemesh") as client:
+            with pytest.raises(LibraryClientError):
+                await client.download_html("/user-loans")
+    
+    @pytest.mark.asyncio
+    async def test_download_html_rejects_absolute_urls(self, client):
+        """Test that download_html rejects absolute URLs for security."""
+        with pytest.raises(LibraryClientError) as exc_info:
+            await client.download_html("https://malicious.example.com/steal")
+        assert "relative path" in str(exc_info.value).lower()
+    
+    @pytest.mark.asyncio
+    async def test_download_html_rejects_non_slash_paths(self, client):
+        """Test that download_html rejects paths not starting with /."""
+        with pytest.raises(LibraryClientError):
+            await client.download_html("user-loans")
+    
+    @pytest.mark.asyncio
+    async def test_download_html_rejects_protocol_relative_urls(self, client):
+        """Test that download_html rejects protocol-relative URLs for security."""
+        with pytest.raises(LibraryClientError) as exc_info:
+            await client.download_html("//malicious.example.com/steal")
+        assert "protocol-relative" in str(exc_info.value).lower()
 
 
 class TestLibraryClientBetshemesh:
@@ -198,3 +244,12 @@ class TestLibraryClientBetshemesh:
             assert isinstance(item, HistoryItem)
             assert item.title is not None
             assert item.library_slug == "betshemesh"
+    
+    @pytest.mark.asyncio
+    async def test_download_html_success(self, client):
+        """Test downloading HTML content from betshemesh library."""
+        html = await client.download_html("/user-loans")
+        
+        assert isinstance(html, str)
+        assert len(html) > 0
+        assert "<html" in html.lower() or "<!doctype" in html.lower()
