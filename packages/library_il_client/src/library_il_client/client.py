@@ -259,6 +259,53 @@ class LibraryClient:
         if not self._logged_in:
             raise LibraryClientError("Not logged in. Call login() first.")
     
+    async def download_html(self, path: str) -> str:
+        """
+        Download raw HTML content from a URL path using the authenticated session.
+        
+        This method allows downloading HTML content from any path on the library
+        website while using the current authenticated session. This is useful for
+        accessing pages that require authentication or for getting raw HTML content
+        that can be saved or processed externally.
+        
+        Args:
+            path: The URL path to download (e.g., "/user-loans", "/profile").
+                  Can be a relative path or an absolute URL on the library domain.
+        
+        Returns:
+            The raw HTML content of the page as a string.
+        
+        Raises:
+            LibraryClientError: If not logged in.
+            SessionExpiredError: If the session has expired.
+            httpx.HTTPStatusError: If the HTTP request fails.
+        
+        Example:
+            >>> async with LibraryClient("shemesh") as client:
+            ...     await client.login("username", "password")
+            ...     html = await client.download_html("/user-loans")
+            ...     # Save to file or process as needed
+            ...     with open("loans.html", "w") as f:
+            ...         f.write(html)
+        """
+        self._ensure_logged_in()
+        
+        # Build the full URL
+        if path.startswith("http://") or path.startswith("https://"):
+            url = path
+        else:
+            url = urljoin(self.base_url, path)
+        
+        response = await self._client.get(url)
+        response.raise_for_status()
+        
+        # Check if session expired (redirected to login)
+        if "/mng" in str(response.url) and "profile" not in str(response.url):
+            self._logged_in = False
+            raise SessionExpiredError("Session has expired. Please login again.")
+        
+        return response.text
+    
     async def get_checked_out_books(self) -> list[CheckedOutBook]:
         """
         Get the list of currently checked out books.
