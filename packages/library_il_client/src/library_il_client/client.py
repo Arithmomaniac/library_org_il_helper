@@ -269,14 +269,14 @@ class LibraryClient:
         that can be saved or processed externally.
         
         Args:
-            path: The URL path to download (e.g., "/user-loans", "/profile").
-                  Can be a relative path or an absolute URL on the library domain.
+            path: The URL path to download (e.g., "/user-loans", "/loans-history").
+                  Must be a relative path starting with "/" on the library domain.
         
         Returns:
             The raw HTML content of the page as a string.
         
         Raises:
-            LibraryClientError: If not logged in.
+            LibraryClientError: If not logged in or if path is invalid.
             SessionExpiredError: If the session has expired.
             httpx.HTTPStatusError: If the HTTP request fails.
         
@@ -290,11 +290,14 @@ class LibraryClient:
         """
         self._ensure_logged_in()
         
-        # Build the full URL
-        if path.startswith("http://") or path.startswith("https://"):
-            url = path
-        else:
-            url = urljoin(self.base_url, path)
+        # Validate path to prevent accessing external URLs
+        if not path.startswith("/"):
+            raise LibraryClientError(
+                "Path must be a relative path starting with '/'. "
+                "Absolute URLs are not allowed for security reasons."
+            )
+        
+        url = urljoin(self.base_url, path)
         
         response = await self._client.get(url)
         response.raise_for_status()

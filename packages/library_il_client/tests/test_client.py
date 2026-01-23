@@ -178,6 +178,19 @@ class TestLibraryClientShemesh:
         async with LibraryClient("shemesh") as client:
             with pytest.raises(LibraryClientError):
                 await client.download_html("/user-loans")
+    
+    @pytest.mark.asyncio
+    async def test_download_html_rejects_absolute_urls(self, client):
+        """Test that download_html rejects absolute URLs for security."""
+        with pytest.raises(LibraryClientError) as exc_info:
+            await client.download_html("https://malicious.example.com/steal")
+        assert "relative path" in str(exc_info.value).lower()
+    
+    @pytest.mark.asyncio
+    async def test_download_html_rejects_non_slash_paths(self, client):
+        """Test that download_html rejects paths not starting with /."""
+        with pytest.raises(LibraryClientError):
+            await client.download_html("user-loans")
 
 
 class TestLibraryClientBetshemesh:
