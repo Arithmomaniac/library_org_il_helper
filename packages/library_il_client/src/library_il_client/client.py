@@ -488,18 +488,38 @@ class LibraryClient:
                 barcode=barcode,
                 library_slug=self.library_slug,
             )
-            
+
             new_due_date = None
             if barcode in barcode_to_book:
                 new_due_date = barcode_to_book[barcode].due_date
-            
+
+            # Per-book success detection. The site doesn't always emit a Hebrew
+            # success banner even when renewal works, so the most reliable signal
+            # is that the re-parsed loans page now shows a later due date for
+            # this barcode. Fall back to keyword detection when we can't compare
+            # (no original book supplied) or when the page reports an error.
+            if is_error:
+                per_book_success = False
+            elif (
+                new_due_date is not None
+                and book.due_date is not None
+                and new_due_date > book.due_date
+            ):
+                per_book_success = True
+            elif new_due_date is not None and book.due_date is None:
+                # No baseline to compare against: trust that a present new due
+                # date plus no error means the renewal stuck.
+                per_book_success = True
+            else:
+                per_book_success = is_success
+
             results.append(RenewalResult(
                 book=book,
-                success=is_success and not is_error,
+                success=per_book_success,
                 message=message,
                 new_due_date=new_due_date,
             ))
-        
+
         return results
     
     async def renew_all_books(self) -> list[RenewalResult]:
