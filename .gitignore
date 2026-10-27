@@ -207,3 +207,8 @@ marimo/_lsp/
 __marimo__/
 # Local configuration with credentials
 accounts.json
+
+# Local editor settings and generated reports
+/.vscode/
+/library_report.md
+/out.md

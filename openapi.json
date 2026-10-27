@@ -1,0 +1,124 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Agron Mobile (unofficial)",
+    "version": "0.1.0",
+    "description": "Unofficial, reverse-engineered description of observed Agron Mobile requests, checked October 26, 2026. Not a vendor-supported API or a guarantee of availability. Sources: https://agronmobile.libnet.co.il/config.js, Scripts/Server/Server.js, Scripts/App/Login.js, Scripts/BLM/User.js and Scripts/Views/TitleInfoView.js. Schemas describe consumed fields and permit additional fields. Application validation may be stricter than the wire description. Generic HTTP 500 responses do not distinguish missing memberships from backend failures."
+  },
+  "servers": [
+    {"url": "https://agron.libnet.co.il:8443"},
+    {"url": "https://agron2.libnet.co.il:8443"},
+    {"url": "https://agron3.libnet.co.il:8443"}
+  ],
+  "security": [{"MobileAuthorization": []}],
+  "paths": {
+    "/api/account/login": {
+      "post": {
+        "operationId": "discoverMemberships",
+        "description": "Called once per server. Authorization is Basic followed by base64(TZ:TZ:) with an empty database. After selection, use the returned dBName in the third field.",
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/LoginRequest"}}}
+        },
+        "responses": {
+          "200": {"description": "Observed membership list.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Memberships"}}}},
+          "default": {"$ref": "#/components/responses/UnknownError"}
+        }
+      }
+    },
+    "/api/loans/getMyLoans": {
+      "get": {
+        "operationId": "getLoanGroups",
+        "description": "Select the group named loans for active loans; history may be included as a separate group. Ordering is not a contract.",
+        "responses": {
+          "200": {"description": "Observed grouped loans/history.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/LoanGroups"}}}},
+          "default": {"$ref": "#/components/responses/UnknownError"}
+        }
+      }
+    },
+    "/api/loans/getMyLoansHistory": {
+      "get": {
+        "operationId": "getHistory",
+        "responses": {
+          "200": {"description": "Observed flat history list; no verified pagination.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/History"}}}},
+          "default": {"$ref": "#/components/responses/UnknownError"}
+        }
+      }
+    },
+    "/api/loans/extensionLoansByCopyNo": {
+      "post": {
+        "operationId": "extendLoans",
+        "description": "State-changing request. The official UI sends an array of copyNo values. Response semantics are unverified: HTTP 200 is not proof of renewal. Re-read the selected loan and compare datePromise; never automatically retry this POST.",
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RenewalRequest"}}}
+        },
+        "responses": {
+          "200": {"description": "Response body intentionally unconstrained; verify via a fresh loans read.", "content": {"application/json": {"schema": {}}}},
+          "default": {"$ref": "#/components/responses/UnknownError"}
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "MobileAuthorization": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "Authorization",
+        "description": "Precomputed header: Basic followed by a space and base64(TZ:TZ:database). This is the client's three-field format, not ordinary two-field HTTP Basic credentials. Preserve leading zeros; send only to the configured HTTPS servers. Contains personal credentials; never log."
+      }
+    },
+    "responses": {
+      "UnknownError": {"description": "Error response semantics are not fully known. A generic 500 is unavailable knowledge, not a confirmed missing membership or renewal rejection."}
+    },
+    "schemas": {
+      "LoginRequest": {
+        "type": "object",
+        "properties": {"userid": {"type": "string", "description": "TZ as a string, including leading zeros."}},
+        "required": ["userid"]
+      },
+      "Membership": {
+        "type": "object",
+        "properties": {
+          "idNo": {"type": "string"},
+          "dBName": {"type": "string"},
+          "libraryName": {"type": "string"},
+          "allowExtension": {"type": ["boolean", "null"]}
+        }
+      },
+      "Memberships": {"type": "array", "items": {"$ref": "#/components/schemas/Membership"}},
+      "LocalTimestamp": {
+        "type": ["string", "null"],
+        "description": "Observed ISO local timestamp such as 2026-10-23T00:00:00, not necessarily timezone-qualified. The app preserves the displayed calendar date. Null means unavailable."
+      },
+      "CopyId": {"type": ["integer", "string"], "description": "Native copyNo, not a catalog title number. Preserve its JSON type."},
+      "Loan": {
+        "type": "object",
+        "description": "Consumed loan fields. The additional loan-level idNo was observed as an integer unrelated to the login TZ; it is not used as account identity. Membership identity comes from login and the selected server/database.",
+        "properties": {
+          "copyNo": {"anyOf": [{"$ref": "#/components/schemas/CopyId"}, {"type": "null"}]},
+          "titleName": {"type": "string"},
+          "authorName": {"type": ["string", "null"]},
+          "dateBorrowed": {"$ref": "#/components/schemas/LocalTimestamp"},
+          "datePromise": {"$ref": "#/components/schemas/LocalTimestamp"},
+          "dateReturn": {"$ref": "#/components/schemas/LocalTimestamp"},
+          "dateExtend": {"$ref": "#/components/schemas/LocalTimestamp"},
+          "isReserved": {"type": ["boolean", "null"]}
+        }
+      },
+      "LoanGroups": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "listName": {"type": "string"},
+            "list": {"type": "array", "items": {"$ref": "#/components/schemas/Loan"}}
+          }
+        }
+      },
+      "History": {"type": "array", "items": {"$ref": "#/components/schemas/Loan"}},
+      "RenewalRequest": {"type": "array", "minItems": 1, "items": {"$ref": "#/components/schemas/CopyId"}}
+    }
+  }
+}

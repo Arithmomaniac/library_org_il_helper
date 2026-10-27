@@ -1,132 +1,85 @@
+> Generated with GitHub Copilot; pending human review.
+
 # Library.org.il Helper
 
-A Python workspace for interacting with library.org.il Israeli public library websites.
+A small Python application for library memberships, loan reports, history, and verified renewals through Agron Mobile. It uses the ID-first, then library-selection flow rather than the redesigned AgronPlus websites.
 
-## Overview
+## Setup
 
-This project provides tools for managing your library accounts across multiple Israeli public libraries that use the library.org.il platform.
+Requires Python 3.11+ and [uv](https://docs.astral.sh/uv/). From this checkout:
 
-## Packages
-
-### library-il-client
-
-The core utility library for interacting with individual library.org.il websites.
-
-**Features:**
-- Async/await API for efficient concurrent operations
-- Login and session management
-- Get currently checked out books
-- Renew checked out books
-- Get checkout history
-
-```python
-import asyncio
-from library_il_client import LibraryClient
-
-async def main():
-    async with LibraryClient("shemesh") as client:
-        await client.login("your_teudat_zehut", "your_password")
-        
-        books = await client.get_checked_out_books()
-        for book in books:
-            print(f"{book.title} - due: {book.due_date}")
-
-asyncio.run(main())
-```
-
-### library-il-aggregator
-
-Aggregates data from multiple library.org.il websites into a unified view.
-
-**Features:**
-- Parallel fetching from multiple libraries for improved performance
-- Combine books and history from multiple libraries
-- CLI tool for quick access
-- Sort by due date or return date
-
-```bash
-# Using the CLI
-export TEUDAT_ZEHUT=your_teudat_zehut
-library-il-aggregate --libraries shemesh betshemesh --all
-```
-
-## Installation
-
-Using uv (recommended):
-
-```bash
-# Install the aggregator (includes client as dependency)
-uv add library-il-aggregator
-
-# Or install just the client
-uv add library-il-client
-```
-
-Using pip:
-
-```bash
-pip install library-il-aggregator
-# or
-pip install library-il-client
-```
-
-## Development
-
-This project uses [uv](https://github.com/astral-sh/uv) for dependency management.
-
-```bash
-# Clone the repository
-git clone https://github.com/Arithmomaniac/library_org_il_helper.git
-cd library_org_il_helper
-
-# Install dependencies
+```powershell
 uv sync
-
-# Run tests
-uv run pytest
 ```
 
-## Supported Libraries
+Create an ignored local `accounts.json`, with one entry per ID:
 
-This project works with any library using the library.org.il platform, including:
-
-- **shemesh.library.org.il** - Benjamin Children's Library (ספריית בנימין לילדים)
-- **betshemesh.library.org.il** - Beit Shemesh Municipal Library (הספרייה העירונית בית שמש)
-- And many other Israeli public libraries
-
-## Environment Variables
-
-| Variable | Description |
-|----------|-------------|
-| `TEUDAT_ZEHUT` | Israeli ID number, used as username and default password |
-| `LIBRARY_PASSWORD` | Optional: password if different from TEUDAT_ZEHUT |
-
-## Project Structure
-
-```
-library_org_il_helper/
-├── pyproject.toml          # Workspace root configuration
-├── packages/
-│   ├── library_il_client/  # Core client library
-│   │   ├── pyproject.toml
-│   │   ├── README.md
-│   │   └── src/
-│   │       └── library_il_client/
-│   │           ├── __init__.py
-│   │           ├── client.py
-│   │           └── models.py
-│   └── library_il_aggregator/  # Aggregator for multiple libraries
-│       ├── pyproject.toml
-│       ├── README.md
-│       └── src/
-│           └── library_il_aggregator/
-│               ├── __init__.py
-│               ├── aggregator.py
-│               ├── cli.py
-│               └── models.py
-└── README.md
+```json
+[
+  {"label": "reader-1", "tz": "YOUR_ID_AS_A_STRING"},
+  {"label": "reader-2", "tz": "ANOTHER_ID_AS_A_STRING"}
+]
 ```
 
-## License
+Replace the placeholders with numeric ID strings, preserving leading zeros. Labels are unique display aliases; an ID number can also be a label if desired. Passwords are not used. Keep this file private.
 
-Apache-2.0
+## Read memberships and loans
+
+```powershell
+uv run library-il memberships
+uv run library-il books
+uv run library-il history --limit 20
+uv run library-il report --output library_report.md
+```
+
+The app queries the three mobile servers for each ID and lists its memberships. The `memberships` output includes exact keys such as `agron:database_name`. Library names are display text, not unique selectors.
+
+Use `--account reader-1` to select an ID alias and `--library agron:database_name` to select one of its libraries. Add `"libraries": ["agron:database_name"]` to a config entry to restrict ordinary reports to those memberships. A command-line library selector skips accounts whose configured filters exclude that library; if every selected account excludes it, the command fails. Omit `libraries` to include all discovered memberships; an empty filter is invalid. The `memberships` command still lists all discovered choices. `--config another.json` can appear before or after the command.
+
+Books sort by earliest due date; history sorts by latest return date. A Markdown report shows account/library headings and overdue status. `uv run python report.py` delegates to `report`. Report commands never renew loans.
+
+## Preview and execute renewals
+
+Both modes require an explicit account and library. Replace the example membership key with one from `memberships`:
+
+```powershell
+uv run library-il renew --account reader-1 --library agron:database_name --due-within 1
+uv run library-il renew --account reader-1 --library agron:database_name --due-within 1 --execute
+```
+
+The first command is a preview; only `--execute` submits renewals. The default threshold is one day, including overdue loans. Loans with unknown due dates are displayed as blocked rather than silently omitted. `uv run python renew.py` delegates to the same preview-first command and requires the same selectors.
+
+The app requires explicit membership permission and skips books that are returned, already extended, reserved, or missing required renewal state, including the checkout date. It refreshes permission and loans before submitting each selected copy once. Eligibility is conservative, not a promise of approval.
+
+A renewal is `renewed` only when a fresh loan read shows a later due date. HTTP 200 alone is insufficient. Other outcomes are `skipped`, an HTTP-confirmed `rejected` request, or `unverified`. A timed-out POST is not retried automatically; a subsequent read may still prove it worked. Re-running an execution command is a new operation, not an exactly-once guarantee.
+
+## Partial results and exit codes
+
+| Code | Meaning |
+|---|---|
+| 0 | Complete reads/preview, no renewal candidates, or all attempted renewals verified. Skips are explained separately. |
+| 1 | Invalid input, no usable result, or wholly failed/unverified renewal execution. |
+| 2 | Usable but incomplete results, or mixed renewal success/failure. |
+
+Successful data remains visible when another server/account fails. Reports mark themselves incomplete and include warnings. Generic server HTTP 500 errors cannot distinguish absent memberships from backend failures; the app does not hide them as empty results. A valid membership with no loans is a successful empty read. Command-line syntax errors use argparse's exit code 2.
+
+## Protocol and limits
+
+[openapi.json](openapi.json) is an **unofficial, reverse-engineered** OpenAPI 3.1 description of four observed endpoints. It is documentation, not a generated SDK or a vendor support guarantee. Sources are the mobile site's [configuration](https://agronmobile.libnet.co.il/config.js), [server calls](https://agronmobile.libnet.co.il/Scripts/Server/Server.js), [login code](https://agronmobile.libnet.co.il/Scripts/App/Login.js), and [renewal UI](https://agronmobile.libnet.co.il/Scripts/Views/TitleInfoView.js).
+
+The API uses a custom three-part Authorization payload. The spec models it as a precomputed header, not ordinary two-field Basic authentication. Local timestamps preserve the library's displayed calendar date. Membership results bind to the responding server and returned database; redirects and response-provided hosts are not trusted for credential routing. Loan-level `idNo` is not the login identity; the app does not interpret that undocumented integer.
+
+Reads and a single approved renewal were verified during migration. All-library support, stable error semantics, and future API availability are not established. The renewal response body remains intentionally unspecified; application success depends on read-back verification. There is no browser automation, scheduling, or pagination layer.
+
+## Development and migration
+
+```powershell
+uv sync
+uv run pytest -q
+```
+
+Tests validate the OpenAPI description and synthetic fixtures, then exercise the real HTTP wrapper and CLI using httpx.MockTransport. The normal suite never contacts a library, reads local account credentials, or renews real books. A manual read-only smoke uses the commands above; live renewal requires a deliberate execution command.
+
+This replaces the old two-package Joomla workspace. Old `library_il_client` / `library_il_aggregator` Python APIs, slug/password configuration, and `library-il-aggregate` command are not supported. Migrate each old username to a single `{"label": "...", "tz": "..."}` entry, remove passwords, and use discovery rather than guessing slug-to-database mappings.
+
+Implementation lives in `src/library_org_il_helper/`: the thin HTTP wrapper, small models, and command orchestration. There is no generated client or separate aggregator framework. Project license: Apache-2.0.
